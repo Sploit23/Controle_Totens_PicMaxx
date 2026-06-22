@@ -155,7 +155,7 @@ function dashboardPage(data) {
       </td>
       <td style="font-size:13px;color:#888">${t.last_seen || 'Nunca'}</td>
       <td><a href="/admin?totem=${t.id}" class="link">Filtrar</a></td>
-      <td style="font-size:12px;color:#999">R$ ${tp.preco_10x15} / R$ ${tp.preco_15x20}</td>
+      <td style="font-size:12px;color:#999">R$ ${tp.preco_10x15} / R$ ${tp.preco_15x20}<br><span style="color:#bbb;font-size:11px">atacado ${tp.preco_10x15_bulk} (${tp.preco_10x15_threshold}+) | ${tp.preco_15x20_bulk} (${tp.preco_15x20_threshold}+)</span></td>
     </tr>`;
   }).join('');
 
@@ -204,9 +204,11 @@ td { padding:12px 14px; font-size:14px; border-bottom:1px solid #f5f5f5; }
 .badge-pix { background:#e0f2fe; color:#0284c7; }
 .badge-card { background:#f3e8ff; color:#7c3aed; }
 .badge-test { background:#fef3c7; color:#d97706; }
-.pricing-grid { display:flex; gap:16px; align-items:end; flex-wrap:wrap; }
-.pricing-item label { display:block; font-size:12px; font-weight:600; color:#666; margin-bottom:4px; }
-.pricing-item input { padding:10px 14px; border:2px solid #e0e0e0; border-radius:10px; font-size:15px; width:110px; outline:none; }
+.pricing-grid { display:flex; gap:20px; align-items:start; flex-wrap:wrap; }
+.pricing-card { background:#f8f9fa; border-radius:14px; padding:18px; min-width:200px; border:1px solid #eee; }
+.pricing-item { margin-bottom:8px; }
+.pricing-item label { display:block; font-size:11px; font-weight:600; color:#666; margin-bottom:3px; }
+.pricing-item input { padding:8px 12px; border:2px solid #e0e0e0; border-radius:8px; font-size:14px; width:110px; outline:none; }
 .pricing-item input:focus { border-color:#302b63; }
 .btn { padding:10px 24px; border:none; border-radius:10px; font-size:14px; font-weight:600; cursor:pointer; transition:all .2s; }
 .btn-primary { background:#302b63; color:#fff; }
@@ -261,20 +263,48 @@ td { padding:12px 14px; font-size:14px; border-bottom:1px solid #f5f5f5; }
   <div class="section">
     <h2>Precos — ${selectedName}</h2>
     <div class="pricing-grid">
-      <form method="POST" action="/admin/config" class="pricing-item">
-        <input name="totemId" value="${totemId || ''}" hidden>
-        <input name="key" value="preco_10x15" hidden>
-        <label>10x15 (R$)</label>
-        <input name="value" value="${prices.preco_10x15}" step="0.5" style="width:110px">
-        <button class="btn btn-primary" style="padding:10px 16px;font-size:13px;margin-top:8px">Salvar</button>
-      </form>
-      <form method="POST" action="/admin/config" class="pricing-item">
-        <input name="totemId" value="${totemId || ''}" hidden>
-        <input name="key" value="preco_15x20" hidden>
-        <label>15x20 (R$)</label>
-        <input name="value" value="${prices.preco_15x20}" step="0.5" style="width:110px">
-        <button class="btn btn-primary" style="padding:10px 16px;font-size:13px;margin-top:8px">Salvar</button>
-      </form>
+      <div class="pricing-card">
+        <h3 style="font-size:15px;margin-bottom:10px;color:#333">10x15</h3>
+        <form method="POST" action="/admin/config" style="display:contents">
+          <input name="totemId" value="${totemId || ''}" hidden>
+          <input name="key" value="preco_10x15" hidden>
+          <div class="pricing-item"><label>Preço unitário (R$)</label><input name="value" value="${prices.preco_10x15}" step="0.5"></div>
+          <button class="btn btn-primary" style="padding:8px 14px;font-size:12px;margin-top:6px">Salvar</button>
+        </form>
+        <form method="POST" action="/admin/config" style="display:contents">
+          <input name="totemId" value="${totemId || ''}" hidden>
+          <input name="key" value="preco_10x15_bulk" hidden>
+          <div class="pricing-item"><label>Preço atacado (R$)</label><input name="value" value="${prices.preco_10x15_bulk || prices.preco_10x15}" step="0.5"></div>
+          <button class="btn btn-primary" style="padding:8px 14px;font-size:12px;margin-top:6px">Salvar</button>
+        </form>
+        <form method="POST" action="/admin/config" style="display:contents">
+          <input name="totemId" value="${totemId || ''}" hidden>
+          <input name="key" value="preco_10x15_threshold" hidden>
+          <div class="pricing-item"><label>Qtd mínima atacado</label><input name="value" value="${prices.preco_10x15_threshold || '5'}" step="1" min="1"></div>
+          <button class="btn btn-primary" style="padding:8px 14px;font-size:12px;margin-top:6px">Salvar</button>
+        </form>
+      </div>
+      <div class="pricing-card">
+        <h3 style="font-size:15px;margin-bottom:10px;color:#333">15x20</h3>
+        <form method="POST" action="/admin/config" style="display:contents">
+          <input name="totemId" value="${totemId || ''}" hidden>
+          <input name="key" value="preco_15x20" hidden>
+          <div class="pricing-item"><label>Preço unitário (R$)</label><input name="value" value="${prices.preco_15x20}" step="0.5"></div>
+          <button class="btn btn-primary" style="padding:8px 14px;font-size:12px;margin-top:6px">Salvar</button>
+        </form>
+        <form method="POST" action="/admin/config" style="display:contents">
+          <input name="totemId" value="${totemId || ''}" hidden>
+          <input name="key" value="preco_15x20_bulk" hidden>
+          <div class="pricing-item"><label>Preço atacado (R$)</label><input name="value" value="${prices.preco_15x20_bulk || prices.preco_15x20}" step="0.5"></div>
+          <button class="btn btn-primary" style="padding:8px 14px;font-size:12px;margin-top:6px">Salvar</button>
+        </form>
+        <form method="POST" action="/admin/config" style="display:contents">
+          <input name="totemId" value="${totemId || ''}" hidden>
+          <input name="key" value="preco_15x20_threshold" hidden>
+          <div class="pricing-item"><label>Qtd mínima atacado</label><input name="value" value="${prices.preco_15x20_threshold || '5'}" step="1" min="1"></div>
+          <button class="btn btn-primary" style="padding:8px 14px;font-size:12px;margin-top:6px">Salvar</button>
+        </form>
+      </div>
       ${totemId ? `<a href="/admin" class="link" style="font-size:13px;align-self:end">Usar precos globais</a>` : ''}
     </div>
   </div>
