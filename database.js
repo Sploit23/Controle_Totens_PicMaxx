@@ -126,7 +126,7 @@ module.exports = {
   // ---- Finalizar codigo (apos impressao): deletar fotos do disco e BD ----
   finalizeCode(codeId) {
     const uploadDir = path.resolve(process.env.UPLOAD_DIR || './uploads');
-    const photos = this.getPhotosByCode(codeId);
+    const photos = db.prepare(`SELECT * FROM photos WHERE code_id = ?`).all(codeId);
     for (const p of photos) {
       const filePath = path.join(uploadDir, p.filename);
       try { if (fs.existsSync(filePath)) fs.unlinkSync(filePath); } catch {}
