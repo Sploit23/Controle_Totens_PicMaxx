@@ -1,0 +1,19 @@
+services:
+  - type: web
+    name: controle-maxx
+    env: node
+    buildCommand: npm install
+    startCommand: node server.js
+    envVars:
+      - key: PORT
+        value: 3000
+      - key: ADMIN_USER
+        value: admin
+      - key: ADMIN_PASS
+        value: 123456
+      - key: UPLOAD_DIR
+        value: ./uploads
+      - key: DB_PATH
+        value: ./data/controle.db
+      - key: CODE_EXPIRE_MINUTES
+        value: 60
