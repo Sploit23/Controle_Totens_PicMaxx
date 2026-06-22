@@ -54,7 +54,8 @@ router.get('/', (req, res) => {
   const totems = getTotems();
   const prices = getAllPrices(totemId);
   const selectedTotem = totemId ? getTotem(totemId) : null;
-  res.send(dashboardPage({ stats, transactions, totems, prices, selectedTotem, totemId }));
+  const saved = req.query.saved === '1';
+  res.send(dashboardPage({ stats, transactions, totems, prices, selectedTotem, totemId, saved }));
 });
 
 router.post('/config', (req, res) => {
@@ -115,7 +116,8 @@ input:focus { border-color:#302b63; }
 }
 
 function dashboardPage(data) {
-  const { stats, transactions, totems, prices, selectedTotem, totemId } = data;
+  const { stats, transactions, totems, prices, selectedTotem, totemId, saved } = data;
+  const savedMsg = saved ? '<div class="msg-success">Precos salvos com sucesso!</div>' : '';
 
   const totemOpts = totems.map(t =>
     `<option value="${t.id}" ${t.id === totemId ? 'selected' : ''}>${t.name || t.id}</option>`
@@ -165,7 +167,6 @@ function dashboardPage(data) {
     </tr>`;
   }).join('');
 
-  const savedMsg = req.query.saved === '1' ? '<div class="msg-success">Precos salvos com sucesso!</div>' : '';
   const selectedName = selectedTotem ? selectedTotem.name || selectedTotem.id : 'Global';
 
   return `<!DOCTYPE html>
