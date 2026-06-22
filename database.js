@@ -88,8 +88,9 @@ module.exports = {
 
   // ---- Codigos ----
   createCode(totemId) {
-    const { v4: uuid } = require('uuid');
-    const id = uuid().slice(0, 8).toUpperCase();
+    const letters = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ';
+    let id = '';
+    for (let i = 0; i < 6; i++) id += letters[Math.floor(Math.random() * letters.length)];
     const expiresMin = parseInt(process.env.CODE_EXPIRE_MINUTES || '60');
     if (totemId) {
       db.prepare(`INSERT OR IGNORE INTO totems (id, name) VALUES (?, ?)`).run(totemId, totemId);
