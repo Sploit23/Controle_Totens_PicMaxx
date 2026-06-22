@@ -1,5 +1,5 @@
 const express = require('express');
-const { registerTotem, getCode, getPhotosByCode, useCode, createTransaction, getAllPrices } = require('../database');
+const { registerTotem, getCode, getPhotosByCode, createTransaction, getAllPrices, finalizeCode } = require('../database');
 
 const router = express.Router();
 
@@ -40,16 +40,16 @@ router.get('/photos/:code', (req, res) => {
 
 router.post('/confirm', (req, res) => {
   try {
-    const { code, totemId, totalValue, items } = req.body;
+    const { code, totalValue, items } = req.body;
     if (!code) return res.status(400).json({ success: false, error: 'Codigo obrigatorio' });
 
     const codeData = getCode(code);
     if (!codeData) return res.status(404).json({ success: false, error: 'Codigo invalido' });
     if (codeData.used) return res.status(400).json({ success: false, error: 'Codigo ja utilizado' });
 
-    useCode(code);
-    const txId = createTransaction(code, totalValue || 0, items || [], codeData.totem_id || totemId);
-    res.json({ success: true, transactionId: txId });
+    const photosDeleted = finalizeCode(code);
+    const txId = createTransaction(code, totalValue || 0, items || [], codeData.totem_id);
+    res.json({ success: true, transactionId: txId, photosDeleted });
   } catch (e) {
     res.status(500).json({ success: false, error: e.message });
   }

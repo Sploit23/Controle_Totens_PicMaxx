@@ -2,7 +2,6 @@ const express = require('express');
 const router = express.Router();
 
 router.get('/', (req, res) => {
-  const totemId = req.query.totem || '';
   res.send(`<!DOCTYPE html>
 <html lang="pt-BR">
 <head>
@@ -42,13 +41,12 @@ router.get('/', (req, res) => {
     @keyframes spin { to { transform:rotate(360deg); } }
     .progress-bar { width:100%; height:4px; background:#e0e0e0; border-radius:2px; margin:12px 0; overflow:hidden; }
     .progress-fill { height:100%; background:#007bff; width:0%; transition:width .3s; border-radius:2px; }
-    .tip { font-size:13px; color:#888; margin-top:12px; }
   </style>
 </head>
 <body>
   <div class="container" id="app">
     <h1>Envie suas Fotos</h1>
-    <p id="subtitle">${totemId ? `Totem: <strong>${totemId}</strong>` : 'Selecione as fotos para imprimir'}</p>
+    <p>Selecione as fotos para enviar e receba um codigo para usar no totem</p>
 
     <div id="error" class="error hidden"></div>
 
@@ -77,12 +75,9 @@ router.get('/', (req, res) => {
       </div>
       <p style="margin-top:20px;font-size:13px;color:#999;">Digite este codigo no totem para continuar</p>
     </div>
-
-    <p class="tip" id="tipText">${totemId ? '' : 'QR Code invalido? Verifique o link.'}</p>
   </div>
 
   <script>
-    const TOTEM_ID = '${totemId}';
     const fileInput = document.getElementById('fileInput');
     const fileList = document.getElementById('fileList');
     const dropzone = document.getElementById('dropzone');
@@ -143,7 +138,7 @@ router.get('/', (req, res) => {
         const startRes = await fetch('/api/upload/start', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ totemId: TOTEM_ID || null })
+          body: '{}'
         });
         const startData = await startRes.json();
         if (!startData.success) { throw new Error(startData.error); }

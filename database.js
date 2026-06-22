@@ -122,6 +122,19 @@ module.exports = {
     return result.lastInsertRowid;
   },
 
+  // ---- Finalizar codigo (apos impressao): deletar fotos do disco e BD ----
+  finalizeCode(codeId) {
+    const uploadDir = path.resolve(process.env.UPLOAD_DIR || './uploads');
+    const photos = this.getPhotosByCode(codeId);
+    for (const p of photos) {
+      const filePath = path.join(uploadDir, p.filename);
+      try { if (fs.existsSync(filePath)) fs.unlinkSync(filePath); } catch {}
+    }
+    db.prepare(`DELETE FROM photos WHERE code_id = ?`).run(codeId);
+    db.prepare(`UPDATE codes SET used = 1, used_at = datetime('now') WHERE id = ?`).run(codeId);
+    return photos.length;
+  },
+
   getTransactions(limit = 50, totemId = null) {
     if (totemId) return db.prepare(`SELECT * FROM transactions WHERE totem_id = ? ORDER BY created_at DESC LIMIT ?`).all(totemId, limit);
     return db.prepare(`SELECT * FROM transactions ORDER BY created_at DESC LIMIT ?`).all(limit);
