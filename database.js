@@ -117,9 +117,13 @@ module.exports = {
     db.prepare(`UPDATE codes SET used = 1, used_at = datetime('now') WHERE id = ?`).run(id);
   },
 
+  updateCodeTotemId(codeId, totemId) {
+    db.prepare(`UPDATE codes SET totem_id = ? WHERE id = ? AND totem_id IS NULL`).run(totemId, codeId);
+  },
+
   // ---- Transacoes ----
-  createTransaction(codeId, totalValue, items, totemId) {
-    const result = db.prepare(`INSERT INTO transactions (code_id, totem_id, total_value, items) VALUES (?, ?, ?, ?)`).run(codeId, totemId || null, totalValue, JSON.stringify(items || []));
+  createTransaction(codeId, totalValue, items, totemId, paymentMethod) {
+    const result = db.prepare(`INSERT INTO transactions (code_id, totem_id, total_value, items, payment_method) VALUES (?, ?, ?, ?, ?)`).run(codeId, totemId || null, totalValue, JSON.stringify(items || []), paymentMethod || 'unknown');
     return result.lastInsertRowid;
   },
 

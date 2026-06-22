@@ -1,5 +1,5 @@
 const express = require('express');
-const { registerTotem, getCode, getPhotosByCode, createTransaction, getAllPrices, finalizeCode } = require('../database');
+const { registerTotem, getCode, getPhotosByCode, createTransaction, getAllPrices, finalizeCode, updateCodeTotemId } = require('../database');
 
 const router = express.Router();
 
@@ -40,15 +40,21 @@ router.get('/photos/:code', (req, res) => {
 
 router.post('/confirm', (req, res) => {
   try {
-    const { code, totalValue, items } = req.body;
+    const { code, totalValue, items, payment_method, totemId } = req.body;
     if (!code) return res.status(400).json({ success: false, error: 'Codigo obrigatorio' });
 
     const codeData = getCode(code);
     if (!codeData) return res.status(404).json({ success: false, error: 'Codigo invalido' });
     if (codeData.used) return res.status(400).json({ success: false, error: 'Codigo ja utilizado' });
 
+    // Associar o codigo ao totem que esta imprimindo (se ainda não tiver)
+    if (!codeData.totem_id && totemId) {
+      updateCodeTotemId(code, totemId);
+      codeData.totem_id = totemId;
+    }
+
     const photosDeleted = finalizeCode(code);
-    const txId = createTransaction(code, totalValue || 0, items || [], codeData.totem_id);
+    const txId = createTransaction(code, totalValue || 0, items || [], codeData.totem_id, payment_method || 'unknown');
     res.json({ success: true, transactionId: txId, photosDeleted });
   } catch (e) {
     res.status(500).json({ success: false, error: e.message });

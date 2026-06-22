@@ -2,6 +2,11 @@ const express = require('express');
 const crypto = require('crypto');
 const { getStats, getTransactions, getTotems, getTotem, getAllPrices, setConfig, updateTotemName } = require('../database');
 
+function paymentLabel(method) {
+  const labels = { pix: 'PIX', credit: 'Crédito', debit: 'Débito', test: 'Teste', money: 'Dinheiro', unknown: '—' };
+  return labels[method] || method || '—';
+}
+
 const router = express.Router();
 const sessions = new Map();
 
@@ -121,7 +126,7 @@ function dashboardPage(data) {
       <td class="cell-mono">${t.code_id}</td>
       <td>${t.totem_id || '-'}</td>
       <td><strong>R$ ${parseFloat(t.total_value).toFixed(2)}</strong></td>
-      <td><span class="badge ${t.payment_method === 'pix' ? 'badge-pix' : 'badge-card'}">${t.payment_method || 'qr_code'}</span></td>
+      <td><span class="badge ${t.payment_method === 'pix' ? 'badge-pix' : t.payment_method === 'test' ? 'badge-test' : 'badge-card'}">${paymentLabel(t.payment_method)}</span></td>
       <td><span class="badge ${t.status === 'completed' ? 'badge-ok' : 'badge-warn'}">${t.status}</span></td>
       <td style="font-size:13px;color:#888">${itemsHtml}</td>
       <td style="font-size:13px;color:#999">${t.created_at?.replace('T', ' ').slice(0, 19) || t.created_at}</td>
@@ -198,6 +203,7 @@ td { padding:12px 14px; font-size:14px; border-bottom:1px solid #f5f5f5; }
 .badge-warn { background:#fef3c7; color:#d97706; }
 .badge-pix { background:#e0f2fe; color:#0284c7; }
 .badge-card { background:#f3e8ff; color:#7c3aed; }
+.badge-test { background:#fef3c7; color:#d97706; }
 .pricing-grid { display:flex; gap:16px; align-items:end; flex-wrap:wrap; }
 .pricing-item label { display:block; font-size:12px; font-weight:600; color:#666; margin-bottom:4px; }
 .pricing-item input { padding:10px 14px; border:2px solid #e0e0e0; border-radius:10px; font-size:15px; width:110px; outline:none; }
@@ -254,21 +260,23 @@ td { padding:12px 14px; font-size:14px; border-bottom:1px solid #f5f5f5; }
 
   <div class="section">
     <h2>Precos — ${selectedName}</h2>
-    <form method="POST" action="/admin/config" class="pricing-grid">
-      <input name="totemId" value="${totemId || ''}" hidden>
-      <div class="pricing-item">
-        <label>10x15 (R$)</label>
+    <div class="pricing-grid">
+      <form method="POST" action="/admin/config" class="pricing-item">
+        <input name="totemId" value="${totemId || ''}" hidden>
         <input name="key" value="preco_10x15" hidden>
-        <input name="value" value="${prices.preco_10x15}" step="0.5">
-      </div>
-      <div class="pricing-item">
-        <label>15x20 (R$)</label>
+        <label>10x15 (R$)</label>
+        <input name="value" value="${prices.preco_10x15}" step="0.5" style="width:110px">
+        <button class="btn btn-primary" style="padding:10px 16px;font-size:13px;margin-top:8px">Salvar</button>
+      </form>
+      <form method="POST" action="/admin/config" class="pricing-item">
+        <input name="totemId" value="${totemId || ''}" hidden>
         <input name="key" value="preco_15x20" hidden>
-        <input name="value" value="${prices.preco_15x20}" step="0.5">
-      </div>
-      <button class="btn btn-primary">Salvar Precos</button>
-      ${totemId ? `<a href="/admin" class="link" style="font-size:13px">Usar precos globais</a>` : ''}
-    </form>
+        <label>15x20 (R$)</label>
+        <input name="value" value="${prices.preco_15x20}" step="0.5" style="width:110px">
+        <button class="btn btn-primary" style="padding:10px 16px;font-size:13px;margin-top:8px">Salvar</button>
+      </form>
+      ${totemId ? `<a href="/admin" class="link" style="font-size:13px;align-self:end">Usar precos globais</a>` : ''}
+    </div>
   </div>
 
   <div class="section">
