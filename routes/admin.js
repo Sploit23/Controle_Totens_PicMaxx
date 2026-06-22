@@ -1,20 +1,46 @@
 const express = require('express');
-const { getStats, getTransactions, getTotems, getConfig, setConfig, getAllPrices, updateTotemName } = require('../database');
+const crypto = require('crypto');
+const { getStats, getTransactions, getTotems, getTotem, getAllPrices, setConfig, updateTotemName } = require('../database');
 
 const router = express.Router();
+const sessions = new Map();
 
 function auth(req, res, next) {
-  const user = process.env.ADMIN_USER || 'admin';
-  const pass = process.env.ADMIN_PASS || '123456';
-  const b64 = (req.headers.authorization || '').replace('Basic ', '');
-  const decoded = Buffer.from(b64, 'base64').toString();
-  const [u, p] = decoded.split(':');
-  if (u === user && p === pass) return next();
-  res.set('WWW-Authenticate', 'Basic realm="Controle Maxx"');
-  res.status(401).send('Acesso negado');
+  const sid = req.cookies?.sid;
+  if (sid && sessions.has(sid)) {
+    req.session = sessions.get(sid);
+    return next();
+  }
+  if (req.path === '/login') return next();
+  res.redirect('/admin/login');
 }
 
 router.use(auth);
+
+router.get('/login', (req, res) => {
+  if (req.cookies?.sid && sessions.has(req.cookies.sid)) return res.redirect('/admin');
+  res.send(loginPage());
+});
+
+router.post('/login', (req, res) => {
+  const { user, pass } = req.body;
+  const adminUser = process.env.ADMIN_USER || 'admin';
+  const adminPass = process.env.ADMIN_PASS || '123456';
+  if (user === adminUser && pass === adminPass) {
+    const sid = crypto.randomBytes(24).toString('hex');
+    sessions.set(sid, { user, createdAt: Date.now() });
+    res.cookie('sid', sid, { httpOnly: true, sameSite: 'lax', maxAge: 86400000 });
+    return res.redirect('/admin');
+  }
+  res.send(loginPage('Credenciais invalidas'));
+});
+
+router.get('/logout', (req, res) => {
+  const sid = req.cookies?.sid;
+  if (sid) sessions.delete(sid);
+  res.clearCookie('sid');
+  res.redirect('/admin/login');
+});
 
 router.get('/', (req, res) => {
   const totemId = req.query.totem || null;
@@ -22,16 +48,15 @@ router.get('/', (req, res) => {
   const transactions = getTransactions(100, totemId);
   const totems = getTotems();
   const prices = getAllPrices(totemId);
-  const selectedTotem = totemId ? require('../database').getTotem(totemId) : null;
-
-  res.send(renderHtml({ stats, transactions, totems, prices, selectedTotem, totemId }));
+  const selectedTotem = totemId ? getTotem(totemId) : null;
+  res.send(dashboardPage({ stats, transactions, totems, prices, selectedTotem, totemId }));
 });
 
 router.post('/config', (req, res) => {
   const { key, value, totemId } = req.body;
   if (key && value !== undefined) setConfig(key, value, totemId || null);
-  const query = totemId ? `?totem=${totemId}` : '';
-  res.redirect(`/admin${query}`);
+  const qs = totemId ? `?totem=${totemId}` : '';
+  res.redirect(`/admin${qs}`);
 });
 
 router.post('/totem/rename', (req, res) => {
@@ -40,105 +65,236 @@ router.post('/totem/rename', (req, res) => {
   res.redirect(`/admin?totem=${totemId}`);
 });
 
-function renderHtml(data) {
+function loginPage(error) {
+  return `<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Login - Controle Maxx</title>
+<style>
+* { margin:0; padding:0; box-sizing:border-box; }
+body { font-family: system-ui, -apple-system, sans-serif; background: linear-gradient(135deg, #0f0c29, #302b63, #24243e); min-height:100vh; display:flex; align-items:center; justify-content:center; }
+.card { background:#fff; border-radius:20px; padding:50px 40px; width:100%; max-width:420px; box-shadow:0 25px 60px rgba(0,0,0,0.5); text-align:center; }
+.logo { font-size:32px; font-weight:800; color:#302b63; margin-bottom:4px; letter-spacing:-1px; }
+.logo span { color:#f5a623; }
+.sub { color:#888; font-size:14px; margin-bottom:32px; }
+.form-group { margin-bottom:20px; text-align:left; }
+label { display:block; font-size:13px; font-weight:600; color:#444; margin-bottom:6px; }
+input { width:100%; padding:14px 16px; border:2px solid #e0e0e0; border-radius:12px; font-size:15px; transition:border-color .2s; outline:none; }
+input:focus { border-color:#302b63; }
+.btn { width:100%; padding:14px; border:none; border-radius:12px; font-size:16px; font-weight:700; cursor:pointer; background:linear-gradient(135deg, #302b63, #24243e); color:#fff; transition:opacity .2s; margin-top:8px; }
+.btn:hover { opacity:.9; }
+.error { background:#fef2f2; color:#dc2626; padding:12px; border-radius:10px; font-size:14px; margin-bottom:20px; }
+</style>
+</head>
+<body>
+<div class="card">
+  <div class="logo">Controle <span>Maxx</span></div>
+  <p class="sub">Painel administrativo</p>
+  ${error ? `<div class="error">${error}</div>` : ''}
+  <form method="POST">
+    <div class="form-group"><label>Usuario</label><input name="user" autofocus></div>
+    <div class="form-group"><label>Senha</label><input type="password" name="pass"></div>
+    <button class="btn">Entrar</button>
+  </form>
+</div>
+</body>
+</html>`;
+}
+
+function dashboardPage(data) {
   const { stats, transactions, totems, prices, selectedTotem, totemId } = data;
 
-  const totemOptions = totems.map(t => `
-    <option value="${t.id}" ${t.id === totemId ? 'selected' : ''}>${t.name || t.id}</option>
-  `).join('') + '<option value="">--- Global ---</option>';
+  const totemOpts = totems.map(t =>
+    `<option value="${t.id}" ${t.id === totemId ? 'selected' : ''}>${t.name || t.id}</option>`
+  ).join('') + '<option value="">--- Todos ---</option>';
 
-  const txRows = transactions.map(t => `
-    <tr><td>${t.id}</td><td>${t.code_id}</td><td>${t.totem_id || '-'}</td><td>R$ ${parseFloat(t.total_value).toFixed(2)}</td><td>${t.status}</td><td>${t.created_at}</td></tr>
-  `).join('');
+  const txRows = transactions.map(t => {
+    let itemsHtml = '';
+    try {
+      const items = JSON.parse(t.items || '[]');
+      if (items.length) itemsHtml = items.map(i => `${i.type || i.size || ''} x${i.qty || i.quantity || 1}`).join(', ');
+    } catch {}
+    return `<tr>
+      <td class="cell-mono">#${t.id}</td>
+      <td class="cell-mono">${t.code_id}</td>
+      <td>${t.totem_id || '-'}</td>
+      <td><strong>R$ ${parseFloat(t.total_value).toFixed(2)}</strong></td>
+      <td><span class="badge ${t.payment_method === 'pix' ? 'badge-pix' : 'badge-card'}">${t.payment_method || 'qr_code'}</span></td>
+      <td><span class="badge ${t.status === 'completed' ? 'badge-ok' : 'badge-warn'}">${t.status}</span></td>
+      <td style="font-size:13px;color:#888">${itemsHtml}</td>
+      <td style="font-size:13px;color:#999">${t.created_at?.replace('T', ' ').slice(0, 19) || t.created_at}</td>
+    </tr>`;
+  }).join('');
 
-  const codeRows = (stats.recentCodes || []).map(c => `
-    <tr><td>${c.id}</td><td>${c.totem_id || '-'}</td><td>${c.photos}</td><td>${c.used ? 'Sim' : 'Nao'}</td><td>${c.expires_at}</td><td>${c.created_at}</td></tr>
-  `).join('');
+  const codeRows = (stats.recentCodes || []).map(c => `<tr>
+    <td class="cell-mono"><strong>${c.id}</strong></td>
+    <td>${c.totem_id || '-'}</td>
+    <td>${c.photos}</td>
+    <td>${c.used ? '<span class="badge badge-ok">Sim</span>' : '<span class="badge badge-warn">Nao</span>'}</td>
+    <td style="font-size:13px;color:#999">${c.expires_at}</td>
+    <td style="font-size:13px;color:#999">${c.created_at}</td>
+  </tr>`).join('');
 
-  const totemRows = totems.map(t => `
-    <tr>
-      <td>${t.id}</td>
+  const totemRows = totems.map(t => {
+    const tp = getAllPrices(t.id);
+    return `<tr>
+      <td class="cell-mono">${t.id}</td>
       <td>
-        <form method="POST" action="/admin/totem/rename" style="display:flex;gap:5px;">
+        <form method="POST" action="/admin/totem/rename" class="inline-form">
           <input name="totemId" value="${t.id}" hidden>
-          <input name="name" value="${t.name || ''}" style="padding:4px;border:1px solid #ddd;border-radius:3px;">
-          <button type="submit" style="padding:4px 10px;background:#28a745;color:#fff;border:none;border-radius:3px;cursor:pointer;">OK</button>
+          <input name="name" value="${t.name || ''}" class="inline-input">
+          <button class="btn-sm btn-ok">Salvar</button>
         </form>
       </td>
-      <td>${t.last_seen || 'Nunca'}</td>
-      <td>${t.created_at}</td>
-      <td><a href="/admin?totem=${t.id}">Filtrar</a></td>
-    </tr>
-  `).join('');
+      <td style="font-size:13px;color:#888">${t.last_seen || 'Nunca'}</td>
+      <td><a href="/admin?totem=${t.id}" class="link">Filtrar</a></td>
+      <td style="font-size:12px;color:#999">R$ ${tp.preco_10x15} / R$ ${tp.preco_15x20}</td>
+    </tr>`;
+  }).join('');
+
+  const selectedName = selectedTotem ? selectedTotem.name || selectedTotem.id : 'Global';
 
   return `<!DOCTYPE html>
 <html lang="pt-BR">
 <head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Controle Maxx${selectedTotem ? ' - ' + selectedTotem.name : ''}</title>
-  <style>
-    * { margin:0; padding:0; box-sizing:border-box; }
-    body { font-family: system-ui, sans-serif; background:#f5f5f5; padding:20px; }
-    h1 { margin-bottom:10px; }
-    .header { display:flex; align-items:center; gap:15px; margin-bottom:20px; flex-wrap:wrap; }
-    .header select { padding:8px; border:1px solid #ddd; border-radius:4px; }
-    .header a { color:#007bff; text-decoration:none; }
-    .cards { display:grid; grid-template-columns:repeat(auto-fit,minmax(180px,1fr)); gap:15px; margin-bottom:30px; }
-    .card { background:#fff; border-radius:8px; padding:20px; box-shadow:0 1px 3px rgba(0,0,0,0.1); }
-    .card h3 { font-size:14px; color:#666; margin-bottom:8px; }
-    .card .value { font-size:26px; font-weight:700; }
-    h2 { margin:25px 0 10px; }
-    table { width:100%; border-collapse:collapse; background:#fff; border-radius:8px; overflow:hidden; margin-bottom:30px; box-shadow:0 1px 3px rgba(0,0,0,0.08); }
-    th, td { padding:10px 12px; text-align:left; border-bottom:1px solid #eee; font-size:14px; }
-    th { background:#fafafa; font-weight:600; }
-    .config-box { background:#fff; border-radius:8px; padding:20px; margin-bottom:30px; box-shadow:0 1px 3px rgba(0,0,0,0.08); }
-    .config-box form { display:flex; gap:15px; align-items:end; flex-wrap:wrap; }
-    .config-box label { display:block; margin-bottom:4px; font-weight:600; font-size:14px; }
-    .config-box input { padding:8px; border:1px solid #ddd; border-radius:4px; width:120px; }
-    .config-box button { padding:8px 20px; background:#007bff; color:#fff; border:none; border-radius:4px; cursor:pointer; }
-    .badge { display:inline-block; padding:2px 8px; border-radius:10px; font-size:12px; background:#e7f3ff; color:#0066cc; }
-  </style>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Controle Maxx${selectedTotem ? ' - ' + selectedName : ''}</title>
+<style>
+* { margin:0; padding:0; box-sizing:border-box; }
+body { font-family: system-ui, -apple-system, sans-serif; background:#f0f2f5; color:#1a1a2e; }
+.topbar { background:#fff; border-bottom:1px solid #e8e8e8; padding:16px 28px; display:flex; align-items:center; justify-content:space-between; position:sticky; top:0; z-index:100; }
+.topbar-left { display:flex; align-items:center; gap:16px; }
+.topbar h1 { font-size:20px; font-weight:800; letter-spacing:-.5px; }
+.topbar h1 span { color:#f5a623; }
+.topbar select { padding:8px 12px; border:2px solid #e0e0e0; border-radius:10px; font-size:14px; background:#fff; cursor:pointer; outline:none; }
+.topbar select:focus { border-color:#302b63; }
+.topbar-right { display:flex; align-items:center; gap:12px; }
+.badge-totem { background:#eef2ff; color:#4338ca; padding:4px 14px; border-radius:20px; font-size:13px; font-weight:600; }
+.btn-logout { padding:8px 18px; border:none; border-radius:10px; font-size:13px; font-weight:600; cursor:pointer; background:#fee2e2; color:#dc2626; transition:background .2s; text-decoration:none; }
+.btn-logout:hover { background:#fecaca; }
+.container { max-width:1400px; margin:0 auto; padding:24px 28px; }
+.cards { display:grid; grid-template-columns:repeat(auto-fit,minmax(190px,1fr)); gap:16px; margin-bottom:28px; }
+.card { background:#fff; border-radius:16px; padding:22px 24px; box-shadow:0 1px 4px rgba(0,0,0,.04); }
+.card .label { font-size:13px; color:#888; font-weight:500; margin-bottom:6px; text-transform:uppercase; letter-spacing:.3px; }
+.card .value { font-size:28px; font-weight:800; color:#1a1a2e; }
+.card .subval { font-size:14px; color:#666; margin-top:2px; }
+.card-gold { border-left:4px solid #f5a623; }
+.card-purple { border-left:4px solid #302b63; }
+.card-green { border-left:4px solid #059669; }
+.card-blue { border-left:4px solid #2563eb; }
+.card-red { border-left:4px solid #dc2626; }
+.section { background:#fff; border-radius:16px; padding:24px; margin-bottom:24px; box-shadow:0 1px 4px rgba(0,0,0,.04); }
+.section h2 { font-size:18px; font-weight:700; margin-bottom:16px; display:flex; align-items:center; gap:8px; }
+.section h2 .count { font-size:13px; font-weight:400; color:#888; }
+table { width:100%; border-collapse:collapse; }
+th { text-align:left; padding:12px 14px; font-size:12px; font-weight:600; color:#888; text-transform:uppercase; letter-spacing:.3px; border-bottom:2px solid #f0f0f0; }
+td { padding:12px 14px; font-size:14px; border-bottom:1px solid #f5f5f5; }
+.cell-mono { font-family:'SF Mono','Fira Code',monospace; font-size:13px; }
+.badge { display:inline-block; padding:3px 10px; border-radius:20px; font-size:12px; font-weight:600; }
+.badge-ok { background:#ecfdf5; color:#059669; }
+.badge-warn { background:#fef3c7; color:#d97706; }
+.badge-pix { background:#e0f2fe; color:#0284c7; }
+.badge-card { background:#f3e8ff; color:#7c3aed; }
+.pricing-grid { display:flex; gap:16px; align-items:end; flex-wrap:wrap; }
+.pricing-item label { display:block; font-size:12px; font-weight:600; color:#666; margin-bottom:4px; }
+.pricing-item input { padding:10px 14px; border:2px solid #e0e0e0; border-radius:10px; font-size:15px; width:110px; outline:none; }
+.pricing-item input:focus { border-color:#302b63; }
+.btn { padding:10px 24px; border:none; border-radius:10px; font-size:14px; font-weight:600; cursor:pointer; transition:all .2s; }
+.btn-primary { background:#302b63; color:#fff; }
+.btn-primary:hover { background:#24243e; }
+.btn-sm { padding:6px 14px; border:none; border-radius:8px; font-size:12px; font-weight:600; cursor:pointer; }
+.btn-ok { background:#059669; color:#fff; }
+.btn-ok:hover { background:#047857; }
+.inline-form { display:flex; gap:6px; align-items:center; }
+.inline-input { padding:6px 10px; border:2px solid #e0e0e0; border-radius:8px; font-size:13px; width:160px; outline:none; }
+.inline-input:focus { border-color:#302b63; }
+.link { color:#302b63; text-decoration:none; font-weight:600; font-size:13px; }
+.link:hover { text-decoration:underline; }
+.empty { text-align:center; padding:40px; color:#999; font-size:14px; }
+</style>
 </head>
 <body>
-  <div class="header">
-    <h1>Controle Maxx</h1>
+<div class="topbar">
+  <div class="topbar-left">
+    <h1>Controle <span>Maxx</span></h1>
     <form method="GET" action="/admin">
-      <select name="totem" onchange="this.form.submit()">
-        <option value="">--- Todos os totens ---</option>
-        ${totemOptions}
-      </select>
+      <select name="totem" onchange="this.form.submit()">${totemOpts}</select>
     </form>
-    ${selectedTotem ? '<span class="badge">' + selectedTotem.name + '</span>' : ''}
+    ${selectedTotem ? `<span class="badge-totem">${selectedName}</span>` : ''}
   </div>
+  <div class="topbar-right">
+    <a href="/admin/logout" class="btn-logout">Sair</a>
+  </div>
+</div>
 
+<div class="container">
   <div class="cards">
-    <div class="card"><h3>Vendas</h3><div class="value">${stats.totalSales.count}</div></div>
-    <div class="card"><h3>Receita</h3><div class="value">R$ ${parseFloat(stats.totalSales.revenue).toFixed(2)}</div></div>
-    <div class="card"><h3>Hoje</h3><div class="value">${stats.todaySales.count} / R$ ${parseFloat(stats.todaySales.revenue).toFixed(2)}</div></div>
-    <div class="card"><h3>Codigos Ativos</h3><div class="value">${stats.activeCodes.count}</div></div>
-    <div class="card"><h3>Fotos</h3><div class="value">${stats.totalPhotos.count}</div></div>
+    <div class="card card-gold">
+      <div class="label">Vendas</div>
+      <div class="value">${stats.totalSales.count}</div>
+      <div class="subval">R$ ${parseFloat(stats.totalSales.revenue).toFixed(2)}</div>
+    </div>
+    <div class="card card-green">
+      <div class="label">Hoje</div>
+      <div class="value">${stats.todaySales.count}</div>
+      <div class="subval">R$ ${parseFloat(stats.todaySales.revenue).toFixed(2)}</div>
+    </div>
+    <div class="card card-purple">
+      <div class="label">Codigos Ativos</div>
+      <div class="value">${stats.activeCodes.count}</div>
+    </div>
+    <div class="card card-blue">
+      <div class="label">Fotos</div>
+      <div class="value">${stats.totalPhotos.count}</div>
+    </div>
   </div>
 
-  <h2>Precos ${selectedTotem ? '- ' + selectedTotem.name : '(Global)'}</h2>
-  <div class="config-box">
-    <form method="POST" action="/admin/config">
+  <div class="section">
+    <h2>Precos — ${selectedName}</h2>
+    <form method="POST" action="/admin/config" class="pricing-grid">
       <input name="totemId" value="${totemId || ''}" hidden>
-      <div><label>10x15 (R$)</label><input name="key" value="preco_10x15" hidden><input name="value" value="${prices.preco_10x15}" step="0.5"></div>
-      <div><label>15x20 (R$)</label><input name="key" value="preco_15x20" hidden><input name="value" value="${prices.preco_15x20}" step="0.5"></div>
-      <button type="submit">Salvar</button>
-      ${totemId ? '<a href="/admin" style="font-size:13px;color:#666;">Usar preco global</a>' : ''}
+      <div class="pricing-item">
+        <label>10x15 (R$)</label>
+        <input name="key" value="preco_10x15" hidden>
+        <input name="value" value="${prices.preco_10x15}" step="0.5">
+      </div>
+      <div class="pricing-item">
+        <label>15x20 (R$)</label>
+        <input name="key" value="preco_15x20" hidden>
+        <input name="value" value="${prices.preco_15x20}" step="0.5">
+      </div>
+      <button class="btn btn-primary">Salvar Precos</button>
+      ${totemId ? `<a href="/admin" class="link" style="font-size:13px">Usar precos globais</a>` : ''}
     </form>
   </div>
 
-  <h2>Totens</h2>
-  <table><thead><tr><th>ID</th><th>Nome</th><th>Ultimo contato</th><th>Criado</th><th></th></tr></thead><tbody>${totemRows}</tbody></table>
+  <div class="section">
+    <h2>Totens <span class="count">(${totems.length})</span></h2>
+    <table>
+      <thead><tr><th>ID</th><th>Nome</th><th>Ultimo Contato</th><th></th><th>Precos (10x15 / 15x20)</th></tr></thead>
+      <tbody>${totemRows || '<tr><td colspan="5" class="empty">Nenhum totem registrado</td></tr>'}</tbody>
+    </table>
+  </div>
 
-  <h2>Codigos Recentes</h2>
-  <table><thead><tr><th>Codigo</th><th>Totem</th><th>Fotos</th><th>Usado</th><th>Expira</th><th>Criado</th></tr></thead><tbody>${codeRows}</tbody></table>
+  <div class="section">
+    <h2>Codigos Recentes <span class="count">(${(stats.recentCodes || []).length})</span></h2>
+    <table>
+      <thead><tr><th>Codigo</th><th>Totem</th><th>Fotos</th><th>Usado</th><th>Expira</th><th>Criado</th></tr></thead>
+      <tbody>${codeRows || '<tr><td colspan="6" class="empty">Nenhum codigo</td></tr>'}</tbody>
+    </table>
+  </div>
 
-  <h2>Transacoes</h2>
-  <table><thead><tr><th>#</th><th>Codigo</th><th>Totem</th><th>Valor</th><th>Status</th><th>Data</th></tr></thead><tbody>${txRows}</tbody></table>
+  <div class="section">
+    <h2>Transacoes <span class="count">(${transactions.length})</span></h2>
+    <table>
+      <thead><tr><th>#</th><th>Codigo</th><th>Totem</th><th>Valor</th><th>Metodo</th><th>Status</th><th>Itens</th><th>Data</th></tr></thead>
+      <tbody>${txRows || '<tr><td colspan="8" class="empty">Nenhuma transacao</td></tr>'}</tbody>
+    </table>
+  </div>
+</div>
 </body>
 </html>`;
 }
