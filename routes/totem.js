@@ -21,8 +21,7 @@ router.get('/photos/:code', (req, res) => {
     const code = getCode(req.params.code);
     if (!code) return res.json({ success: false, error: 'Codigo invalido' });
 
-    const now = new Date().toISOString();
-    if (now > code.expires_at) return res.json({ success: false, error: 'Codigo expirado' });
+    if (new Date() > new Date(code.expires_at + 'Z')) return res.json({ success: false, error: 'Codigo expirado' });
 
     const photos = getPhotosByCode(code.id);
     const list = photos.map(p => ({

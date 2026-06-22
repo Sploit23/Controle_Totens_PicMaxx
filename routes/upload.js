@@ -34,8 +34,7 @@ router.post('/photos', upload.array('photos', 50), (req, res) => {
     if (!code) return res.status(404).json({ success: false, error: 'Codigo invalido' });
     if (code.used) return res.status(400).json({ success: false, error: 'Codigo ja utilizado' });
 
-    const now = new Date().toISOString();
-    if (now > code.expires_at) return res.status(400).json({ success: false, error: 'Codigo expirado' });
+    if (new Date() > new Date(code.expires_at + 'Z')) return res.status(400).json({ success: false, error: 'Codigo expirado' });
 
     const files = req.files || [];
     for (const f of files) {
