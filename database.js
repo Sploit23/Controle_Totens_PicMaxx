@@ -185,26 +185,26 @@ module.exports = {
   },
 
   getAllPrices(totemId = null) {
+    const defaults = { '10x15': { base: '5.00', bulk: '5.00', threshold: '5' }, '15x20': { base: '10.00', bulk: '10.00', threshold: '5' } };
     const getCfg = (key, tid) => {
       const fullKey = tid ? `totem_${tid}_${key}` : key;
       const row = db.prepare(`SELECT value FROM config WHERE key = ?`).get(fullKey);
-      return row ? row.value : null;
+      if (row && row.value !== null && row.value !== '') return row.value;
+      return null;
     };
-    const g = (baseKey, tid) => {
-      const base = getCfg(baseKey, tid) || getCfg(baseKey) || { '10x15': '5.00', '15x20': '10.00' }[baseKey] || '5.00';
-      const bulk = getCfg(baseKey + '_bulk', tid) || getCfg(baseKey + '_bulk') || base;
-      const threshold = getCfg(baseKey + '_threshold', tid) || getCfg(baseKey + '_threshold') || '5';
-      return { base, bulk, threshold };
+    const getVal = (baseKey, suffix, tid, fallback) => {
+      const key = suffix ? baseKey + '_' + suffix : baseKey;
+      return getCfg(key, tid) || getCfg(key) || fallback;
     };
-    const p10 = g('preco_10x15', totemId);
-    const p20 = g('preco_15x20', totemId);
+    const p10 = defaults['10x15'];
+    const p20 = defaults['15x20'];
     return {
-      preco_10x15: p10.base,
-      preco_10x15_bulk: p10.bulk,
-      preco_10x15_threshold: p10.threshold,
-      preco_15x20: p20.base,
-      preco_15x20_bulk: p20.bulk,
-      preco_15x20_threshold: p20.threshold,
+      preco_10x15: getVal('preco_10x15', null, totemId, p10.base),
+      preco_10x15_bulk: getVal('preco_10x15', 'bulk', totemId, p10.bulk),
+      preco_10x15_threshold: getVal('preco_10x15', 'threshold', totemId, p10.threshold),
+      preco_15x20: getVal('preco_15x20', null, totemId, p20.base),
+      preco_15x20_bulk: getVal('preco_15x20', 'bulk', totemId, p20.bulk),
+      preco_15x20_threshold: getVal('preco_15x20', 'threshold', totemId, p20.threshold),
     };
   },
 
