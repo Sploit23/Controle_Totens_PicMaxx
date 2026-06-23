@@ -1,6 +1,12 @@
 const express = require('express');
 const { registerTotem, getCode, getPhotosByCode, createTransaction, createFailedTransaction, getAllPrices, finalizeCode, updateCodeTotemId } = require('../database');
-const { log } = require('../server');
+
+function log(rid, msg, data) {
+  const ts = new Date().toISOString().replace('T', ' ').slice(0, 19);
+  const prefix = rid ? `[${ts}][${rid}]` : `[${ts}]`;
+  if (data) console.log(`${prefix} ${msg}`, data);
+  else console.log(`${prefix} ${msg}`);
+}
 
 const router = express.Router();
 
@@ -69,10 +75,10 @@ router.post('/confirm', (req, res) => {
 
 router.post('/transaction-failed', (req, res) => {
   try {
-    const { code, totalValue, items, payment_method, totemId, error_reason, localId } = req.body;
+    const { code, totalValue, items, payment_method, totemId, error_reason, localId, isTest } = req.body;
     if (!code && !localId) return res.status(400).json({ success: false, error: 'code ou localId obrigatorio' });
 
-    const txId = createFailedTransaction(code || null, totalValue || 0, items || [], totemId || null, payment_method || 'unknown', error_reason || '', localId || null);
+    const txId = createFailedTransaction(code || null, totalValue || 0, items || [], totemId || null, payment_method || 'unknown', error_reason || '', localId || null, isTest ? 1 : 0);
     log(req.rid, `Transacao falhou: ${localId || code} (${payment_method}, motivo: ${error_reason || 'N/A'})`);
     res.json({ success: true, transactionId: txId });
   } catch (e) {

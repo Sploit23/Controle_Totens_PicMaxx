@@ -43,7 +43,7 @@ function initDatabase() {
 
     CREATE TABLE IF NOT EXISTS transactions (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
-      code_id TEXT NOT NULL,
+      code_id TEXT,
       totem_id TEXT,
       total_value REAL DEFAULT 0,
       items TEXT DEFAULT '[]',
@@ -132,8 +132,9 @@ module.exports = {
     return result.lastInsertRowid;
   },
 
-  createFailedTransaction(codeId, totalValue, items, totemId, paymentMethod, errorReason, localId = null) {
-    const result = db.prepare(`INSERT INTO transactions (code_id, totem_id, total_value, items, payment_method, status, error_reason, local_id) VALUES (?, ?, ?, ?, ?, 'failed', ?, ?)`).run(codeId, totemId || null, totalValue || 0, JSON.stringify(items || []), paymentMethod || 'unknown', errorReason || '', localId);
+  createFailedTransaction(codeId, totalValue, items, totemId, paymentMethod, errorReason, localId = null, isTest = 0) {
+    const safeCodeId = codeId || (() => { const c = 'FAILED_' + Date.now(); try { db.prepare(`INSERT OR IGNORE INTO codes (id) VALUES (?)`).run(c); } catch {} return c; })();
+    const result = db.prepare(`INSERT INTO transactions (code_id, totem_id, total_value, items, payment_method, status, error_reason, local_id, is_test) VALUES (?, ?, ?, ?, ?, 'failed', ?, ?, ?)`).run(safeCodeId, totemId || null, totalValue || 0, JSON.stringify(items || []), paymentMethod || 'unknown', errorReason || '', localId, isTest ? 1 : 0);
     return result.lastInsertRowid;
   },
 
@@ -229,10 +230,14 @@ module.exports = {
 
   // ---- Cleanup ----
   cleanupExpired() {
-    const expired = db.prepare(`SELECT id FROM codes WHERE expires_at < datetime('now') AND used = 0`).all();
-    const delPhotos = db.prepare(`DELETE FROM photos WHERE code_id = ?`);
-    const delCode = db.prepare(`DELETE FROM codes WHERE id = ?`);
-    for (const c of expired) { delPhotos.run(c.id); delCode.run(c.id); }
+    const uploadDir = path.resolve(process.env.UPLOAD_DIR || './uploads');
+    const expired = db.prepare(`SELECT id, filename FROM photos WHERE code_id IN (SELECT id FROM codes WHERE expires_at < datetime('now') AND used = 0)`).all();
+    for (const p of expired) {
+      try { const fp = path.join(uploadDir, p.filename); if (fs.existsSync(fp)) fs.unlinkSync(fp); } catch {}
+    }
+    const delPhotos = db.prepare(`DELETE FROM photos WHERE code_id IN (SELECT id FROM codes WHERE expires_at < datetime('now') AND used = 0)`);
+    const delCode = db.prepare(`DELETE FROM codes WHERE expires_at < datetime('now') AND used = 0`);
+    delPhotos.run(); delCode.run();
     return expired.length;
   }
 };
