@@ -1,5 +1,5 @@
 const express = require('express');
-const { registerTotem, getCode, getPhotosByCode, createTransaction, getAllPrices, finalizeCode, updateCodeTotemId } = require('../database');
+const { registerTotem, getCode, getPhotosByCode, createTransaction, createFailedTransaction, getAllPrices, finalizeCode, updateCodeTotemId } = require('../database');
 const { log } = require('../server');
 
 const router = express.Router();
@@ -44,7 +44,7 @@ router.get('/photos/:code', (req, res) => {
 
 router.post('/confirm', (req, res) => {
   try {
-    const { code, totalValue, items, payment_method, totemId } = req.body;
+    const { code, totalValue, items, payment_method, totemId, localId, isTest } = req.body;
     if (!code) return res.status(400).json({ success: false, error: 'Codigo obrigatorio' });
 
     const codeData = getCode(code);
@@ -58,11 +58,25 @@ router.post('/confirm', (req, res) => {
     }
 
     const photosDeleted = finalizeCode(code);
-    const txId = createTransaction(code, totalValue || 0, items || [], codeData.totem_id, payment_method || 'unknown');
+    const txId = createTransaction(code, totalValue || 0, items || [], codeData.totem_id, payment_method || 'unknown', localId || null, isTest ? 1 : 0);
     log(req.rid, `Confirmado: ${code} (R$ ${totalValue}, ${photosDeleted} fotos, ${payment_method})`);
     res.json({ success: true, transactionId: txId, photosDeleted });
   } catch (e) {
     log(req.rid, `Erro ao confirmar: ${e.message}`);
+    res.status(500).json({ success: false, error: e.message });
+  }
+});
+
+router.post('/transaction-failed', (req, res) => {
+  try {
+    const { code, totalValue, items, payment_method, totemId, error_reason, localId } = req.body;
+    if (!code && !localId) return res.status(400).json({ success: false, error: 'code ou localId obrigatorio' });
+
+    const txId = createFailedTransaction(code || null, totalValue || 0, items || [], totemId || null, payment_method || 'unknown', error_reason || '', localId || null);
+    log(req.rid, `Transacao falhou: ${localId || code} (${payment_method}, motivo: ${error_reason || 'N/A'})`);
+    res.json({ success: true, transactionId: txId });
+  } catch (e) {
+    log(req.rid, `Erro ao registrar falha: ${e.message}`);
     res.status(500).json({ success: false, error: e.message });
   }
 });

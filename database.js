@@ -60,6 +60,11 @@ function initDatabase() {
     );
   `);
 
+  // Migrations: add colunas novas (ignora se ja existem)
+  try { db.exec(`ALTER TABLE transactions ADD COLUMN local_id TEXT`); } catch {}
+  try { db.exec(`ALTER TABLE transactions ADD COLUMN is_test INTEGER DEFAULT 0`); } catch {}
+  try { db.exec(`ALTER TABLE transactions ADD COLUMN error_reason TEXT`); } catch {}
+
   return db;
 }
 
@@ -122,8 +127,13 @@ module.exports = {
   },
 
   // ---- Transacoes ----
-  createTransaction(codeId, totalValue, items, totemId, paymentMethod) {
-    const result = db.prepare(`INSERT INTO transactions (code_id, totem_id, total_value, items, payment_method) VALUES (?, ?, ?, ?, ?)`).run(codeId, totemId || null, totalValue, JSON.stringify(items || []), paymentMethod || 'unknown');
+  createTransaction(codeId, totalValue, items, totemId, paymentMethod, localId = null, isTest = 0) {
+    const result = db.prepare(`INSERT INTO transactions (code_id, totem_id, total_value, items, payment_method, local_id, is_test) VALUES (?, ?, ?, ?, ?, ?, ?)`).run(codeId, totemId || null, totalValue, JSON.stringify(items || []), paymentMethod || 'unknown', localId, isTest ? 1 : 0);
+    return result.lastInsertRowid;
+  },
+
+  createFailedTransaction(codeId, totalValue, items, totemId, paymentMethod, errorReason, localId = null) {
+    const result = db.prepare(`INSERT INTO transactions (code_id, totem_id, total_value, items, payment_method, status, error_reason, local_id) VALUES (?, ?, ?, ?, ?, 'failed', ?, ?)`).run(codeId, totemId || null, totalValue || 0, JSON.stringify(items || []), paymentMethod || 'unknown', errorReason || '', localId);
     return result.lastInsertRowid;
   },
 
@@ -149,13 +159,14 @@ module.exports = {
   getStats(totemId = null) {
     const params = totemId ? [totemId] : [];
 
+    // Transacoes completadas (exclui teste do revenue)
     const totalSales = totemId
-      ? db.prepare(`SELECT COUNT(*) as count, COALESCE(SUM(total_value),0) as revenue FROM transactions WHERE totem_id = ?`).get(totemId)
-      : db.prepare(`SELECT COUNT(*) as count, COALESCE(SUM(total_value),0) as revenue FROM transactions`).get();
+      ? db.prepare(`SELECT COUNT(*) as count, COALESCE(SUM(CASE WHEN is_test = 0 THEN total_value ELSE 0 END),0) as revenue FROM transactions WHERE status = 'completed' AND totem_id = ?`).get(totemId)
+      : db.prepare(`SELECT COUNT(*) as count, COALESCE(SUM(CASE WHEN is_test = 0 THEN total_value ELSE 0 END),0) as revenue FROM transactions WHERE status = 'completed'`).get();
 
     const todaySales = totemId
-      ? db.prepare(`SELECT COUNT(*) as count, COALESCE(SUM(total_value),0) as revenue FROM transactions WHERE totem_id = ? AND date(created_at) = date('now')`).get(totemId)
-      : db.prepare(`SELECT COUNT(*) as count, COALESCE(SUM(total_value),0) as revenue FROM transactions WHERE date(created_at) = date('now')`).get();
+      ? db.prepare(`SELECT COUNT(*) as count, COALESCE(SUM(CASE WHEN is_test = 0 THEN total_value ELSE 0 END),0) as revenue FROM transactions WHERE status = 'completed' AND totem_id = ? AND date(created_at) = date('now')`).get(totemId)
+      : db.prepare(`SELECT COUNT(*) as count, COALESCE(SUM(CASE WHEN is_test = 0 THEN total_value ELSE 0 END),0) as revenue FROM transactions WHERE status = 'completed' AND date(created_at) = date('now')`).get();
 
     const activeCodes = totemId
       ? db.prepare(`SELECT COUNT(*) as count FROM codes WHERE used = 0 AND expires_at > datetime('now') AND totem_id = ?`).get(totemId)
@@ -165,11 +176,19 @@ module.exports = {
       ? db.prepare(`SELECT COUNT(*) as count FROM photos WHERE code_id IN (SELECT id FROM codes WHERE totem_id = ?)`).get(totemId)
       : db.prepare(`SELECT COUNT(*) as count FROM photos`).get();
 
+    const failedCount = totemId
+      ? db.prepare(`SELECT COUNT(*) as count FROM transactions WHERE status = 'failed' AND totem_id = ?`).get(totemId)
+      : db.prepare(`SELECT COUNT(*) as count FROM transactions WHERE status = 'failed'`).get();
+
+    const testCount = totemId
+      ? db.prepare(`SELECT COUNT(*) as count, COALESCE(SUM(total_value),0) as revenue FROM transactions WHERE is_test = 1 AND totem_id = ?`).get(totemId)
+      : db.prepare(`SELECT COUNT(*) as count, COALESCE(SUM(total_value),0) as revenue FROM transactions WHERE is_test = 1`).get();
+
     const recentCodes = totemId
       ? db.prepare(`SELECT * FROM codes WHERE totem_id = ? ORDER BY created_at DESC LIMIT 20`).all(totemId)
       : db.prepare(`SELECT * FROM codes ORDER BY created_at DESC LIMIT 20`).all();
 
-    return { totalSales, todaySales, activeCodes, totalPhotos, recentCodes };
+    return { totalSales, todaySales, activeCodes, totalPhotos, failedCount, testCount, recentCodes };
   },
 
   // ---- Config (global e por totem) ----

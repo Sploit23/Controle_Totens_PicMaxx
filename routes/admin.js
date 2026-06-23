@@ -131,12 +131,13 @@ function dashboardPage(data) {
     } catch {}
     return `<tr>
       <td class="cell-mono">#${t.id}</td>
-      <td class="cell-mono">${t.code_id}</td>
+      <td class="cell-mono">${t.code_id || '-'}</td>
       <td>${t.totem_id || '-'}</td>
       <td><strong>R$ ${parseFloat(t.total_value).toFixed(2)}</strong></td>
       <td><span class="badge ${t.payment_method === 'pix' ? 'badge-pix' : t.payment_method === 'test' ? 'badge-test' : 'badge-card'}">${paymentLabel(t.payment_method)}</span></td>
-      <td><span class="badge ${t.status === 'completed' ? 'badge-ok' : 'badge-warn'}">${t.status}</span></td>
+      <td><span class="badge ${t.status === 'completed' ? 'badge-ok' : t.status === 'failed' ? 'badge-fail' : 'badge-warn'}">${t.status === 'failed' ? 'Recusado' : t.status}</span></td>
       <td style="font-size:13px;color:#888">${itemsHtml}</td>
+      <td class="cell-mono" style="font-size:11px;color:#999">${t.local_id || '-'}</td>
       <td style="font-size:13px;color:#999">${t.created_at?.replace('T', ' ').slice(0, 19) || t.created_at}</td>
     </tr>`;
   }).join('');
@@ -212,6 +213,7 @@ td { padding:12px 14px; font-size:14px; border-bottom:1px solid #f5f5f5; }
 .badge-pix { background:#e0f2fe; color:#0284c7; }
 .badge-card { background:#f3e8ff; color:#7c3aed; }
 .badge-test { background:#fef3c7; color:#d97706; }
+.badge-fail { background:#fef2f2; color:#dc2626; }
 .msg-success { background:#ecfdf5; color:#059669; padding:12px 16px; border-radius:10px; font-size:14px; font-weight:600; margin-bottom:16px; border-left:4px solid #059669; }
 .pricing-grid { display:flex; gap:20px; align-items:start; flex-wrap:wrap; }
 .pricing-card { background:#f8f9fa; border-radius:14px; padding:20px; min-width:220px; border:1px solid #eee; flex:1; }
@@ -267,6 +269,11 @@ td { padding:12px 14px; font-size:14px; border-bottom:1px solid #f5f5f5; }
     <div class="card card-blue">
       <div class="label">Fotos</div>
       <div class="value">${stats.totalPhotos.count}</div>
+    </div>
+    <div class="card card-red">
+      <div class="label">Recusadas</div>
+      <div class="value">${stats.failedCount.count}</div>
+      <div class="subval">${stats.testCount.count} teste (R$ ${parseFloat(stats.testCount.revenue).toFixed(2)})</div>
     </div>
   </div>
 
@@ -331,8 +338,8 @@ td { padding:12px 14px; font-size:14px; border-bottom:1px solid #f5f5f5; }
   <div class="section">
     <h2>Transacoes <span class="count">(${transactions.length})</span></h2>
     <table>
-      <thead><tr><th>#</th><th>Codigo</th><th>Totem</th><th>Valor</th><th>Metodo</th><th>Status</th><th>Itens</th><th>Data</th></tr></thead>
-      <tbody>${txRows || '<tr><td colspan="8" class="empty">Nenhuma transacao</td></tr>'}</tbody>
+      <thead><tr><th>#</th><th>Codigo</th><th>Totem</th><th>Valor</th><th>Metodo</th><th>Status</th><th>Itens</th><th>ID Local</th><th>Data</th></tr></thead>
+      <tbody>${txRows || '<tr><td colspan="9" class="empty">Nenhuma transacao</td></tr>'}</tbody>
     </table>
   </div>
 </div>

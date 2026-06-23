@@ -46,6 +46,10 @@ function initTestDatabase(dbPath) {
       key TEXT PRIMARY KEY, value TEXT
     );
   `);
+  // Migrations (mesmo da database.js)
+  try { db.exec(`ALTER TABLE transactions ADD COLUMN local_id TEXT`); } catch {}
+  try { db.exec(`ALTER TABLE transactions ADD COLUMN is_test INTEGER DEFAULT 0`); } catch {}
+  try { db.exec(`ALTER TABLE transactions ADD COLUMN error_reason TEXT`); } catch {}
   return db;
 }
 
@@ -168,6 +172,34 @@ test('transaction stats', () => {
   const stats = db.prepare(`SELECT COUNT(*) as count, COALESCE(SUM(total_value),0) as revenue FROM transactions`).get();
   assert(stats.count > 0, 'should have transactions');
   assert(parseFloat(stats.revenue) > 0, 'revenue should be positive');
+});
+
+test('create failed transaction', () => {
+  const codeId = 'FAIL-TX';
+  db.prepare(`INSERT OR IGNORE INTO codes (id) VALUES (?)`).run(codeId);
+  const result = db.prepare(`INSERT INTO transactions (code_id, totem_id, total_value, items, payment_method, status, error_reason, local_id) VALUES (?, ?, ?, ?, ?, 'failed', ?, ?)`).run(codeId, 'TEST-TOTEM-1', 15.00, '[]', 'debit', 'Saldo insuficiente', 'VENDA_20260622_ABC12');
+  assert(result.lastInsertRowid > 0, 'failed transaction should have ID');
+  const tx = db.prepare(`SELECT * FROM transactions WHERE id = ?`).get(result.lastInsertRowid);
+  assert(tx.status === 'failed', 'status should be failed');
+  assert(tx.error_reason === 'Saldo insuficiente', 'error reason preserved');
+  assert(tx.local_id === 'VENDA_20260622_ABC12', 'local_id preserved');
+});
+
+test('test transaction excluded from revenue', () => {
+  const codeId = 'TEST-TX-REV';
+  db.prepare(`INSERT OR IGNORE INTO codes (id) VALUES (?)`).run(codeId);
+  db.prepare(`INSERT INTO transactions (code_id, totem_id, total_value, items, payment_method, is_test) VALUES (?, ?, ?, ?, ?, 1)`).run(codeId, 'TEST-TOTEM-1', 999.00, '[]', 'test');
+  const revenue = db.prepare(`SELECT COALESCE(SUM(CASE WHEN is_test = 0 THEN total_value ELSE 0 END),0) as revenue FROM transactions WHERE status = 'completed'`).get();
+  assert(parseFloat(revenue.revenue) < 999, 'test transactions should not inflate revenue');
+});
+
+test('failed payment log entry has all fields', () => {
+  const codeId = 'FAIL-FULL';
+  db.prepare(`INSERT OR IGNORE INTO codes (id) VALUES (?)`).run(codeId);
+  db.prepare(`INSERT INTO transactions (code_id, totem_id, total_value, items, payment_method, status, error_reason, local_id) VALUES (?, ?, ?, ?, ?, 'failed', ?, ?)`).run(codeId, 'TEST-TOTEM-1', 0, '[]', 'pix', 'cancelado pelo usuario', 'VENDA_20260622_DEF45');
+  const tx = db.prepare(`SELECT * FROM transactions WHERE local_id = ?`).get('VENDA_20260622_DEF45');
+  assert(tx && tx.status === 'failed', 'failed transaction should exist');
+  assert(tx.payment_method === 'pix', 'payment method preserved');
 });
 
 // ─── Cleanup ───────────────────────────────────────────
