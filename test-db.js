@@ -87,12 +87,12 @@ test('register totem', () => {
   assert(t && t.name === 'Totem Teste', 'totem should exist with correct name');
 });
 
-test('create 6-letter code', () => {
-  const letters = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ';
+test('create 6-digit code', () => {
+  const digits = '0123456789';
   let id = '';
-  for (let i = 0; i < 6; i++) id += letters[Math.floor(Math.random() * letters.length)];
+  for (let i = 0; i < 6; i++) id += digits[Math.floor(Math.random() * digits.length)];
   assert(id.length === 6, 'code should be 6 chars');
-  assert(/^[A-Z]{6}$/.test(id), 'code should be uppercase letters only');
+  assert(/^[0-9]{6}$/.test(id), 'code should be digits only');
   db.prepare(`INSERT INTO codes (id, totem_id) VALUES (?, ?)`).run(id, 'TEST-TOTEM-1');
   const c = db.prepare(`SELECT * FROM codes WHERE id = ?`).get(id);
   assert(c && c.id === id, 'code should be retrievable');
@@ -100,7 +100,7 @@ test('create 6-letter code', () => {
 });
 
 test('prevent duplicate code', () => {
-  const id = 'ABCDEF';
+  const id = '123456';
   db.prepare(`INSERT OR IGNORE INTO codes (id) VALUES (?)`).run(id);
   const result = db.prepare(`INSERT OR IGNORE INTO codes (id) VALUES (?)`).run(id);
   assert(result.changes === 0, 'duplicate should be rejected');
