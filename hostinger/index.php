@@ -237,9 +237,9 @@ footer strong{ color:#333; }
         </svg>
       </div>
       <div class="label" id="dropLabel">Arraste as fotos aqui ou <span class="browse-link" id="browseLink">busque no celular</span></div>
-      <div class="hint" id="dropHint">Até 50 fotos · Máx 50MB cada · Formatos JPG, PNG e WEBP</div>
+      <div class="hint" id="dropHint">Até 50 fotos · Máx 50MB cada · Formatos JPG, PNG, WEBP e HEIC</div>
     </div>
-    <input type="file" id="fileInput" multiple accept="image/*" />
+    <input type="file" id="fileInput" multiple accept="image/*,.heic,.heif" />
 
     <div id="fileSection" class="hidden mt-14">
       <div class="photo-count" id="photoCount"></div>
@@ -298,7 +298,7 @@ const LANG_DATA = {
     heroSub:'Escolha as fotos e receba um c\u00f3digo para usar no totem',
     dropLabel:'Arraste as fotos aqui ou',
     browseLink:'busque no celular',
-    dropHint:'At\u00e9 50 fotos \u00b7 M\u00e1x 50MB cada \u00b7 Formatos JPG, PNG e WEBP',
+    dropHint:'At\u00e9 50 fotos \u00b7 M\u00e1x 50MB cada \u00b7 Formatos JPG, PNG, WEBP e HEIC',
     btnLabel:'Enviar Fotos',
     uploading:'Enviando...',
     finalizing:'Finalizando...',
@@ -319,7 +319,7 @@ const LANG_DATA = {
     heroSub:'Pick photos and get a code to use at the kiosk',
     dropLabel:'Drag photos here or',
     browseLink:'browse your phone',
-    dropHint:'Up to 50 photos \u00b7 Max 50MB each \u00b7 JPG, PNG, WEBP',
+    dropHint:'Up to 50 photos \u00b7 Max 50MB each \u00b7 JPG, PNG, WEBP, HEIC',
     btnLabel:'Send Photos',
     uploading:'Uploading...',
     finalizing:'Finalizing...',
@@ -340,7 +340,7 @@ const LANG_DATA = {
     heroSub:'Elige las fotos y recibe un c\u00f3digo para usar en el t\u00f3tem',
     dropLabel:'Arrastra las fotos aqu\u00ed o',
     browseLink:'busca en el celular',
-    dropHint:'Hasta 50 fotos \u00b7 M\u00e1x 50MB cada \u00b7 Formatos JPG, PNG, WEBP',
+    dropHint:'Hasta 50 fotos \u00b7 M\u00e1x 50MB cada \u00b7 Formatos JPG, PNG, WEBP y HEIC',
     btnLabel:'Enviar Fotos',
     uploading:'Enviando...',
     finalizing:'Finalizando...',
