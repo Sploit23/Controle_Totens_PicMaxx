@@ -496,7 +496,7 @@ async function startUpload(){
       setProgress(15);
     }
     var formData=new FormData();formData.append('code',code);
-    selectedFiles.forEach(function(f){formData.append('photos',f);});
+    selectedFiles.forEach(function(f){formData.append('photos[]',f);});
     var xhr=new XMLHttpRequest();
     xhr.open('POST',API_BASE+'/upload.php',true);
     xhr.upload.onprogress=function(e){if(e.lengthComputable) setProgress(15+(e.loaded/e.total)*75);};
