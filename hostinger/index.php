@@ -156,6 +156,7 @@ input[type="file"]{ display:none; }
 }
 .result-info{ font-size:14px; color:#888; margin-top:14px; line-height:1.5; }
 .result-info strong{ color:#333; }
+.result-count{ font-size:18px; color:var(--accent); font-weight:700; margin-bottom:4px; }
 .result-tip{
   margin-top:18px; padding:14px;
   background:#fff5f5; border-radius:10px;
@@ -281,11 +282,13 @@ footer strong{ color:#333; }
       </div>
       <h2 id="resultHeading">Fotos recebidas!</h2>
       <div class="result-code" id="codigoDisplay">------</div>
+      <div class="result-count" id="codigoCount"></div>
       <div class="result-info" id="codigoExpire"></div>
       <div class="result-tip" id="resultTip">
         <strong id="tipLabel">Dica:</strong> <span id="tipText">Digite este código no teclado do totem para imprimir suas fotos</span>
       </div>
-      <button class="new-upload" id="newUploadBtn" onclick="resetUpload()">Enviar mais fotos</button>
+      <button class="new-upload" id="newUploadBtn">Enviar mais fotos</button>
+      <button class="new-upload" id="resetUploadBtn" style="margin-top:8px;background:transparent;color:var(--accent);border:1px solid var(--accent);">Recomeçar (novo código)</button>
     </div>
   </div>
 
@@ -412,6 +415,7 @@ const progressText=document.getElementById('progressText');
 const errorEl=document.getElementById('error');
 const errorText=document.getElementById('errorText');
 var selectedFiles=[];
+var currentCode=null;
 
 function showError(msg){errorText.textContent=msg;errorEl.classList.remove('hidden');}
 function hideError(){errorEl.classList.add('hidden');}
@@ -470,6 +474,8 @@ function restoreBtnText(){
   document.getElementById('btnLabel').textContent=LANG_DATA[currentLang].btnLabel;
 }
 btnUpload.addEventListener('click',startUpload);
+document.getElementById('newUploadBtn').addEventListener('click',addMorePhotos);
+document.getElementById('resetUploadBtn').addEventListener('click',resetUpload);
 async function startUpload(){
   hideError();
   if(selectedFiles.length===0) return;
@@ -477,10 +483,18 @@ async function startUpload(){
   btnUpload.innerHTML='<span class="spinner"></span> '+LANG_DATA[currentLang].uploading;
   setProgress(0);
   try{
-    var startRes=await fetch(API_BASE+'/start.php',{method:'POST',headers:{'Content-Type':'application/json'},body:'{}'});
-    var startData=await startRes.json();
-    if(!startData.success){throw new Error(LANG_DATA[currentLang].errorStart+': '+(startData.error||''));}
-    var code=startData.code;setProgress(15);
+    var code;
+    if(currentCode){
+      code=currentCode;
+      setProgress(15);
+    }else{
+      var startRes=await fetch(API_BASE+'/start.php',{method:'POST',headers:{'Content-Type':'application/json'},body:'{}'});
+      var startData=await startRes.json();
+      if(!startData.success){throw new Error(LANG_DATA[currentLang].errorStart+': '+(startData.error||''));}
+      code=startData.code;
+      currentCode=code;
+      setProgress(15);
+    }
     var formData=new FormData();formData.append('code',code);
     selectedFiles.forEach(function(f){formData.append('photos',f);});
     var xhr=new XMLHttpRequest();
@@ -507,10 +521,27 @@ function showCode(code){
   document.getElementById('codigoDisplay').textContent=code;
   document.getElementById('codigoExpire').innerHTML=LANG_DATA[currentLang].resultExpire;
   selectedFiles.forEach(function(f){try{URL.revokeObjectURL(f);}catch(e){}});
+  // mostra quantas fotos ja foram enviadas para este codigo
+  fetch(API_BASE+'/photos.php?code='+code).then(function(r){return r.json();}).then(function(d){
+    if(d.success&&d.photoCount>0){
+      var el=document.getElementById('codigoCount');
+      if(el) el.textContent=d.photoCount+' '+(d.photoCount>1?LANG_DATA[currentLang].photosPlural||'fotos':LANG_DATA[currentLang].photosSingular||'foto');
+    }
+  }).catch(function(){});
+}
+function addMorePhotos(){
+  document.getElementById('step-result').classList.add('hidden');
+  document.getElementById('step-upload').classList.remove('hidden');
+  selectedFiles=[];document.getElementById('fileInput').value='';
+  fileSection.classList.add('hidden');dropzone.classList.remove('has-files');
+  btnUpload.disabled=true;restoreBtnText();
+  progressWrap.classList.add('hidden');progressText.classList.add('hidden');
+  progressFill.style.width='0%';hideError();
 }
 function resetUpload(){
-  document.getElementById('step-upload').classList.remove('hidden');
+  currentCode=null;
   document.getElementById('step-result').classList.add('hidden');
+  document.getElementById('step-upload').classList.remove('hidden');
   selectedFiles=[];document.getElementById('fileInput').value='';
   fileSection.classList.add('hidden');dropzone.classList.remove('has-files');
   btnUpload.disabled=true;restoreBtnText();
