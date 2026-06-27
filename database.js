@@ -1,5 +1,6 @@
 const path = require('path');
 const fs = require('fs');
+const crypto = require('crypto');
 const Database = require('better-sqlite3');
 
 const DB_PATH = process.env.DB_PATH || './data/controle.db';
@@ -58,20 +59,60 @@ function initDatabase() {
       key TEXT PRIMARY KEY,
       value TEXT
     );
+
+    CREATE TABLE IF NOT EXISTS users (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      name TEXT NOT NULL,
+      email TEXT UNIQUE NOT NULL,
+      password_hash TEXT NOT NULL,
+      plan TEXT DEFAULT 'basic',
+      created_at TEXT DEFAULT (datetime('now')),
+      active INTEGER DEFAULT 1
+    );
+
+    CREATE TABLE IF NOT EXISTS licenses (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      user_id INTEGER NOT NULL,
+      token TEXT UNIQUE NOT NULL,
+      totem_id TEXT,
+      expires_at TEXT,
+      created_at TEXT DEFAULT (datetime('now')),
+      active INTEGER DEFAULT 1,
+      FOREIGN KEY (user_id) REFERENCES users(id)
+    );
   `);
 
   // Migrations: add colunas novas (ignora se ja existem)
   try { db.exec(`ALTER TABLE transactions ADD COLUMN local_id TEXT`); } catch {}
   try { db.exec(`ALTER TABLE transactions ADD COLUMN is_test INTEGER DEFAULT 0`); } catch {}
   try { db.exec(`ALTER TABLE transactions ADD COLUMN error_reason TEXT`); } catch {}
+  try { db.exec(`ALTER TABLE totems ADD COLUMN user_id INTEGER`); } catch {}
 
   return db;
 }
 
 const db = initDatabase();
 
+// Funcoes internas (para uso dentro do modulo)
+function _ensureCode(codeId, totemId) {
+  db.prepare(`INSERT OR IGNORE INTO codes (id, totem_id, expires_at) VALUES (?, ?, datetime('now', '+1 hours'))`).run(codeId, totemId || null);
+}
+
+function _hashPassword(password) {
+  const salt = crypto.randomBytes(16).toString('hex');
+  const hash = crypto.pbkdf2Sync(password, salt, 100000, 64, 'sha512').toString('hex');
+  return `${salt}:${hash}`;
+}
+
+function _verifyPassword(password, stored) {
+  const [salt, hash] = stored.split(':');
+  const verify = crypto.pbkdf2Sync(password, salt, 100000, 64, 'sha512').toString('hex');
+  return hash === verify;
+}
+
 module.exports = {
   db,
+  getDB: () => db,
 
   // ---- Totens ----
   registerTotem(id, name) {
@@ -92,20 +133,18 @@ module.exports = {
   },
 
   // ---- Codigos (registro dos codigos usados nas transacoes) ----
-  ensureCode(codeId, totemId) {
-    db.prepare(`INSERT OR IGNORE INTO codes (id, totem_id, expires_at) VALUES (?, ?, datetime('now', '+1 hours'))`).run(codeId, totemId || null);
-  },
+  ensureCode: _ensureCode,
 
   // ---- Transacoes ----
   createTransaction(codeId, totalValue, items, totemId, paymentMethod, localId = null, isTest = 0) {
-    this.ensureCode(codeId, totemId);
+    _ensureCode(codeId, totemId);
     const result = db.prepare(`INSERT INTO transactions (code_id, totem_id, total_value, items, payment_method, local_id, is_test) VALUES (?, ?, ?, ?, ?, ?, ?)`).run(codeId, totemId || null, totalValue, JSON.stringify(items || []), paymentMethod || 'unknown', localId, isTest ? 1 : 0);
     return result.lastInsertRowid;
   },
 
   createFailedTransaction(codeId, totalValue, items, totemId, paymentMethod, errorReason, localId = null, isTest = 0) {
     const safeCodeId = codeId || 'FAILED_' + Date.now();
-    this.ensureCode(safeCodeId, totemId);
+    _ensureCode(safeCodeId, totemId);
     const result = db.prepare(`INSERT INTO transactions (code_id, totem_id, total_value, items, payment_method, status, error_reason, local_id, is_test) VALUES (?, ?, ?, ?, ?, 'failed', ?, ?, ?)`).run(safeCodeId, totemId || null, totalValue || 0, JSON.stringify(items || []), paymentMethod || 'unknown', errorReason || '', localId, isTest ? 1 : 0);
     return result.lastInsertRowid;
   },
@@ -184,5 +223,75 @@ module.exports = {
       preco_15x20_bulk: getVal('preco_15x20', 'bulk', totemId, p20.bulk),
       preco_15x20_threshold: getVal('preco_15x20', 'threshold', totemId, p20.threshold),
     };
+  },
+
+  // ---- Password ----
+  hashPassword: _hashPassword,
+  verifyPassword: _verifyPassword,
+
+  // ---- Usuarios ----
+  createUser(name, email, password, plan = 'basic') {
+    const hash = _hashPassword(password);
+    const result = db.prepare(`INSERT INTO users (name, email, password_hash, plan) VALUES (?, ?, ?, ?)`).run(name, email, hash, plan);
+    return result.lastInsertRowid;
+  },
+
+  getUserByEmail(email) {
+    return db.prepare(`SELECT * FROM users WHERE email = ?`).get(email);
+  },
+
+  getUserById(id) {
+    return db.prepare(`SELECT id, name, email, plan, created_at, active FROM users WHERE id = ?`).get(id);
+  },
+
+  getUsers() {
+    return db.prepare(`SELECT id, name, email, plan, created_at, active FROM users ORDER BY name`).all();
+  },
+
+  updateUser(id, fields) {
+    for (const [key, value] of Object.entries(fields)) {
+      db.prepare(`UPDATE users SET ${key} = ? WHERE id = ?`).run(value, id);
+    }
+  },
+
+  // ---- Licenses ----
+  createLicense(userId, totemId = null) {
+    const buf = crypto.randomBytes(6);
+    const token = 'LIC-' + buf.toString('hex').toUpperCase().match(/.{1,4}/g).join('-');
+    db.prepare(`INSERT INTO licenses (user_id, token, totem_id, expires_at) VALUES (?, ?, ?, datetime('now', '+1 year'))`).run(userId, token, totemId || null);
+    return token;
+  },
+
+  getLicensesByUser(userId) {
+    return db.prepare(`SELECT * FROM licenses WHERE user_id = ? ORDER BY created_at DESC`).all(userId);
+  },
+
+  getLicenseByToken(token) {
+    return db.prepare(`SELECT l.*, u.name as user_name FROM licenses l JOIN users u ON u.id = l.user_id WHERE l.token = ?`).get(token);
+  },
+
+  getAllLicenses() {
+    return db.prepare(`SELECT l.*, u.name as user_name FROM licenses l JOIN users u ON u.id = l.user_id ORDER BY l.created_at DESC`).all();
+  },
+
+  updateLicense(id, fields) {
+    for (const [key, value] of Object.entries(fields)) {
+      db.prepare(`UPDATE licenses SET ${key} = ? WHERE id = ?`).run(value, id);
+    }
+  },
+
+  // ---- Client Config ----
+  getClientConfig(userId) {
+    const rows = db.prepare(`SELECT key, value FROM config WHERE key LIKE ?`).all(`user_${userId}_%`);
+    const config = {};
+    for (const row of rows) {
+      const k = row.key.replace(`user_${userId}_`, '');
+      config[k] = row.value;
+    }
+    return config;
+  },
+
+  setClientConfig(userId, key, value) {
+    db.prepare(`INSERT OR REPLACE INTO config (key, value) VALUES (?, ?)`).run(`user_${userId}_${key}`, String(value));
   }
 };
