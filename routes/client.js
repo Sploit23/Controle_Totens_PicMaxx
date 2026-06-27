@@ -7,6 +7,7 @@ const { getUserByEmail, getUserById, getUsers, createUser, updateUser,
         createLicense, getLicensesByUser, getLicenseByToken, getAllLicenses, updateLicense,
         getLicenseByTotemId,
         hashPassword, verifyPassword, updateTotemName } = require('../database');
+const { notifyTotem, notifyUserTotems } = require('../ws-manager');
 
 const sessions = new Map();
 
@@ -151,6 +152,16 @@ router.post('/config', (req, res) => {
     }
   }
   log(req.rid, `Config salva: ${targetKey}`);
+
+  // Notificar kiosk(s) via WebSocket para atualizar precos/config
+  if (totemId) {
+    notifyTotem(totemId, { type: 'reloadConfig' });
+    log(req.rid, `WebSocket: notificando totem ${totemId}`);
+  } else {
+    const count = notifyUserTotems(user.id, { type: 'reloadConfig' });
+    if (count > 0) log(req.rid, `WebSocket: notificando ${count} totem(s) do usuario ${user.id}`);
+  }
+
   res.json({ success: true });
 });
 

@@ -1,5 +1,6 @@
 require('dotenv').config();
 const express = require('express');
+const http = require('http');
 const cors = require('cors');
 const cookieParser = require('cookie-parser');
 const crypto = require('crypto');
@@ -8,6 +9,7 @@ const totemRoute = require('./routes/totem');
 const adminRoute = require('./routes/admin');
 const clientRoute = require('./routes/client');
 const { createUser, getUserByEmail, getDB } = require('./database');
+const { initWebSocket } = require('./ws-manager');
 
 const PORT = process.env.PORT || 3000;
 const app = express();
@@ -80,10 +82,14 @@ function seedInitialUser() {
 
 seedInitialUser();
 
-app.listen(PORT, '0.0.0.0', () => {
+const server = http.createServer(app);
+initWebSocket(server);
+
+server.listen(PORT, '0.0.0.0', () => {
   console.log(`[Controle Maxx] Rodando em http://0.0.0.0:${PORT}`);
   console.log(`[Controle Maxx] Admin: http://localhost:${PORT}/admin`);
   console.log(`[Controle Maxx] Client: http://localhost:${PORT}/client`);
+  console.log(`[Controle Maxx] WebSocket ready`);
 });
 
 module.exports = { log };
