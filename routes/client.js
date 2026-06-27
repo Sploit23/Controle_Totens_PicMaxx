@@ -309,13 +309,13 @@ tr:hover td { background:#fafafa; }
   </div>
   <div class="card">
     <div class="card-label">Vendas Hoje</div>
-    <div class="card-value">${todayCount}</div>
-    <div class="card-sub">${fmtMoney(todayRevenue)}</div>
+    <div class="card-value">${stats.todayCount}</div>
+    <div class="card-sub">${fmtMoney(stats.todayRevenue)}</div>
   </div>
   <div class="card">
     <div class="card-label">Faturamento Total</div>
-    <div class="card-value">${fmtMoney(totalRevenue)}</div>
-    <div class="card-sub">${totalSalesCount} vendas</div>
+    <div class="card-value">${fmtMoney(stats.totalRevenue)}</div>
+    <div class="card-sub">${stats.totalSalesCount} vendas</div>
   </div>
   <div class="card">
     <div class="card-label">Licenças</div>

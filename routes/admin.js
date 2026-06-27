@@ -1,6 +1,7 @@
 const express = require('express');
 const crypto = require('crypto');
-const { getStats, getTransactions, getTotems, getTotem, getAllPrices, setConfig, updateTotemName } = require('../database');
+const { getStats, getTransactions, getTotems, getTotem, getAllPrices, setConfig, updateTotemName,
+        getUsers, getAllLicenses } = require('../database');
 
 function paymentLabel(method) {
   const labels = { pix: 'PIX', credit: 'Crédito', debit: 'Débito', test: 'Teste', money: 'Dinheiro', unknown: '—' };
@@ -55,7 +56,9 @@ router.get('/', (req, res) => {
   const prices = getAllPrices(totemId);
   const selectedTotem = totemId ? getTotem(totemId) : null;
   const saved = req.query.saved === '1';
-  res.send(dashboardPage({ stats, transactions, totems, prices, selectedTotem, totemId, saved }));
+  const users = getUsers();
+  const licenses = getAllLicenses();
+  res.send(dashboardPage({ stats, transactions, totems, prices, selectedTotem, totemId, saved, users, licenses }));
 });
 
 router.post('/config', (req, res) => {
@@ -116,7 +119,7 @@ input:focus { border-color:#302b63; }
 }
 
 function dashboardPage(data) {
-  const { stats, transactions, totems, prices, selectedTotem, totemId, saved } = data;
+  const { stats, transactions, totems, prices, selectedTotem, totemId, saved, users, licenses } = data;
   const savedMsg = saved ? '<div class="msg-success">Precos salvos com sucesso!</div>' : '';
 
   const totemOpts = totems.map(t =>
@@ -324,6 +327,28 @@ td { padding:12px 14px; font-size:14px; border-bottom:1px solid #f5f5f5; }
     <table>
       <thead><tr><th>ID</th><th>Nome</th><th>Ultimo Contato</th><th></th><th>Precos (10x15 / 15x20)</th></tr></thead>
       <tbody>${totemRows || '<tr><td colspan="5" class="empty">Nenhum totem registrado</td></tr>'}</tbody>
+    </table>
+  </div>
+
+  <div class="section">
+    <h2>Clientes <span class="count">(${users.length})</span></h2>
+    <table>
+      <thead><tr><th>ID</th><th>Nome</th><th>Email</th><th>Plano</th><th>Status</th><th>Totens</th><th>Licenças</th><th>Desde</th></tr></thead>
+      <tbody>${users.map(u => {
+        const userTotens = totems.filter(t => t.user_id === u.id);
+        const userLicenses = licenses.filter(l => l.user_id === u.id);
+        return `<tr>
+          <td class="cell-mono">#${u.id}</td>
+          <td><strong>${u.name}</strong></td>
+          <td class="cell-mono">${u.email}</td>
+          <td><span class="badge badge-${u.plan === 'pro' ? 'ok' : 'warn'}">${u.plan}</span></td>
+          <td><span class="badge ${u.active ? 'badge-ok' : 'badge-fail'}">${u.active ? 'Ativo' : 'Suspenso'}</span></td>
+          <td>${userTotens.length} (${userTotens.map(t => t.id).join(', ')})</td>
+          <td>${userLicenses.length} ativas</td>
+          <td style="font-size:13px;color:#999">${u.created_at}</td>
+        </tr>`;
+      }).join('') || '<tr><td colspan="8" class="empty">Nenhum cliente</td></tr>'}
+      </tbody>
     </table>
   </div>
 
