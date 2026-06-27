@@ -5,6 +5,7 @@ const { getUserByEmail, getUserById, getUsers, createUser, updateUser,
         getTransactions, getStats,
         getClientConfig, setClientConfig,
         createLicense, getLicensesByUser, getLicenseByToken, getAllLicenses, updateLicense,
+        getLicenseByTotemId,
         hashPassword, verifyPassword, updateTotemName } = require('../database');
 
 const sessions = new Map();
@@ -79,7 +80,8 @@ router.get('/', (req, res) => {
     const reportedConfig = getTotemConfig(selectedTotemId);
     const stats = getStats(selectedTotemId);
     const txs = getTransactions(50, selectedTotemId);
-    pageContent = kioskDetailPage(user, totem, reportedConfig, config, stats, txs);
+    const license = getLicenseByTotemId(selectedTotemId);
+    pageContent = kioskDetailPage(user, totem, license, reportedConfig, config, stats, txs);
   } else if (page === 'licenses') {
     pageTitle = 'Licenças';
     pageContent = licensesPage(user, licenses);
@@ -388,7 +390,7 @@ ${cards}`;
 }
 
 // ─── KIOSK DETAIL ──────────────────────────────────────
-function kioskDetailPage(user, totem, reportedConfig, config, stats, txs) {
+function kioskDetailPage(user, totem, license, reportedConfig, config, stats, txs) {
   const online = totem.last_seen && (Date.now() - new Date(totem.last_seen+'Z').getTime()) < 180000;
   const methodLabels = { pix:'PIX', credit:'Crédito', debit:'Débito', test:'Teste', money:'Dinheiro', unknown:'—' };
 
@@ -460,7 +462,7 @@ function kioskDetailPage(user, totem, reportedConfig, config, stats, txs) {
     </div>
     <div style="display:flex;align-items:center;gap:12px;">
       <span style="font-weight:600;font-size:14px;color:#555;min-width:80px;">Licença:</span>
-      <span>${totem.license_token ? `<code style="background:#f0f0f0;padding:2px 8px;border-radius:4px;font-size:12px;">${totem.license_token}</code>` : '—'}</span>
+      <span>${license ? `<code style="background:#f0f0f0;padding:2px 8px;border-radius:4px;font-size:12px;">${license.token}</code> <span style="font-size:12px;color:#888;">(${license.active ? 'Ativa' : 'Inativa'})</span>` : '—'}</span>
     </div>
   </div>
 </div>

@@ -214,15 +214,31 @@ module.exports = {
 
   getAllPrices(totemId = null) {
     const defaults = { '10x15': { base: '5.00', bulk: '5.00', threshold: '5' }, '15x20': { base: '10.00', bulk: '10.00', threshold: '5' } };
+    // Descobrir userId do totem para verificar config de usuario
+    let userId = null;
+    if (totemId) {
+      const t = db.prepare(`SELECT user_id FROM totems WHERE id = ?`).get(totemId);
+      if (t) userId = t.user_id;
+    }
     const getCfg = (key, tid) => {
-      const fullKey = tid ? `totem_${tid}_${key}` : key;
-      const row = db.prepare(`SELECT value FROM config WHERE key = ?`).get(fullKey);
+      // 1) Totem-specific
+      if (tid) {
+        const row = db.prepare(`SELECT value FROM config WHERE key = ?`).get(`totem_${tid}_${key}`);
+        if (row && row.value !== null && row.value !== '') return row.value;
+      }
+      // 2) User-level
+      if (userId) {
+        const row = db.prepare(`SELECT value FROM config WHERE key = ?`).get(`user_${userId}_${key}`);
+        if (row && row.value !== null && row.value !== '') return row.value;
+      }
+      // 3) Global fallback
+      const row = db.prepare(`SELECT value FROM config WHERE key = ?`).get(key);
       if (row && row.value !== null && row.value !== '') return row.value;
       return null;
     };
     const getVal = (baseKey, suffix, tid, fallback) => {
       const key = suffix ? baseKey + '_' + suffix : baseKey;
-      return getCfg(key, tid) || getCfg(key) || fallback;
+      return getCfg(key, tid) || fallback;
     };
     const p10 = defaults['10x15'];
     const p20 = defaults['15x20'];
@@ -293,6 +309,10 @@ module.exports = {
 
   bindLicenseToTotem(token, totemId) {
     db.prepare(`UPDATE licenses SET totem_id = ? WHERE token = ? AND totem_id IS NULL`).run(totemId, token);
+  },
+
+  getLicenseByTotemId(totemId) {
+    return db.prepare(`SELECT * FROM licenses WHERE totem_id = ? LIMIT 1`).get(totemId);
   },
 
   // ---- Vincular totem a um usuario ----
