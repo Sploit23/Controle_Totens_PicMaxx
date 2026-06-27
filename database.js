@@ -87,6 +87,7 @@ function initDatabase() {
   try { db.exec(`ALTER TABLE transactions ADD COLUMN is_test INTEGER DEFAULT 0`); } catch {}
   try { db.exec(`ALTER TABLE transactions ADD COLUMN error_reason TEXT`); } catch {}
   try { db.exec(`ALTER TABLE totems ADD COLUMN user_id INTEGER`); } catch {}
+  try { db.exec(`ALTER TABLE totems ADD COLUMN reported_config TEXT`); } catch {}
 
   return db;
 }
@@ -130,6 +131,16 @@ module.exports = {
 
   updateTotemName(id, name) {
     db.prepare(`UPDATE totems SET name = ? WHERE id = ?`).run(name, id);
+  },
+
+  updateTotemConfig(id, configJson) {
+    db.prepare(`UPDATE totems SET reported_config = ? WHERE id = ?`).run(configJson, id);
+  },
+
+  getTotemConfig(id) {
+    const t = db.prepare(`SELECT reported_config FROM totems WHERE id = ?`).get(id);
+    if (!t || !t.reported_config) return {};
+    try { return JSON.parse(t.reported_config); } catch { return {}; }
   },
 
   // ---- Codigos (registro dos codigos usados nas transacoes) ----
@@ -304,7 +315,7 @@ module.exports = {
     return config;
   },
 
-  setClientConfig(userId, key, value) {
-    db.prepare(`INSERT OR REPLACE INTO config (key, value) VALUES (?, ?)`).run(`user_${userId}_${key}`, String(value));
+  setClientConfig(prefix, key, value) {
+    db.prepare(`INSERT OR REPLACE INTO config (key, value) VALUES (?, ?)`).run(`${prefix}_${key}`, String(value));
   }
 };

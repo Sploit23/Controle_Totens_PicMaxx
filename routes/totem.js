@@ -1,6 +1,7 @@
 const express = require('express');
 const { registerTotem, createTransaction, createFailedTransaction, getAllPrices,
-        getLicenseByToken, bindLicenseToTotem, bindTotemToUser, getUserById } = require('../database');
+        getLicenseByToken, bindLicenseToTotem, bindTotemToUser, getUserById,
+        updateTotemConfig } = require('../database');
 
 function log(rid, msg, data) {
   const ts = new Date().toISOString().replace('T', ' ').slice(0, 19);
@@ -12,7 +13,7 @@ function log(rid, msg, data) {
 const router = express.Router();
 
 router.post('/register', (req, res) => {
-  const { totemId, name, licenseToken } = req.body;
+  const { totemId, name, licenseToken, localConfig } = req.body;
   if (!totemId) return res.status(400).json({ success: false, error: 'totemId obrigatorio' });
 
   // Validar licenca se enviada
@@ -33,6 +34,12 @@ router.post('/register', (req, res) => {
   }
 
   registerTotem(totemId, name || totemId);
+
+  // Armazenar config reportada pelo kiosk
+  if (localConfig) {
+    updateTotemConfig(totemId, JSON.stringify(localConfig));
+  }
+
   const prices = getAllPrices(totemId);
   log(req.rid, `Totem registrado: ${totemId}`);
   res.json({ success: true, prices });

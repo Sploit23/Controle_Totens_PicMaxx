@@ -1,7 +1,7 @@
 const express = require('express');
 const crypto = require('crypto');
 const { getUserByEmail, getUserById, getUsers, createUser, updateUser,
-        getTotems, getTotem, getTotemsByUser, registerTotem,
+        getTotems, getTotem, getTotemsByUser, registerTotem, getTotemConfig,
         getTransactions, getStats,
         getClientConfig, setClientConfig,
         createLicense, getLicensesByUser, getLicenseByToken, getAllLicenses, updateLicense,
@@ -65,10 +65,15 @@ router.get('/', (req, res) => {
 
   const clientTotems = getTotemsByUser(user.id);
   const totemIds = clientTotems.map(t => t.id);
+  const selectedTotemId = req.query.totem || (clientTotems.length === 1 ? clientTotems[0].id : '');
+
+  // Se um totem foi selecionado, usar so dados dele
+  const activeTotems = selectedTotemId ? clientTotems.filter(t => t.id === selectedTotemId) : clientTotems;
+  const activeTotemIds = activeTotems.map(t => t.id);
 
   const statsAll = getStats();
   let totalSalesCount = 0, totalRevenue = 0, todayCount = 0, todayRevenue = 0;
-  for (const tid of totemIds) {
+  for (const tid of activeTotemIds.length ? activeTotemIds : totemIds) {
     const s = getStats(tid);
     totalSalesCount += s.totalSales.count;
     totalRevenue += parseFloat(s.totalSales.revenue);
@@ -77,7 +82,7 @@ router.get('/', (req, res) => {
   }
 
   const recentTxs = [];
-  for (const tid of totemIds) {
+  for (const tid of activeTotemIds.length ? activeTotemIds : totemIds) {
     recentTxs.push(...getTransactions(50, tid));
   }
   recentTxs.sort((a, b) => b.created_at.localeCompare(a.created_at));
@@ -86,7 +91,19 @@ router.get('/', (req, res) => {
   const config = getClientConfig(user.id);
   const licenses = getLicensesByUser(user.id);
 
-  res.send(dashboardPage(user, clientTotems, { totalSalesCount, totalRevenue, todayCount, todayRevenue }, recentTxs, config, licenses));
+  // Config do totem selecionado (reportada pelo kiosk)
+  let totemReportedConfig = {};
+  let selectedTotem = null;
+  if (selectedTotemId) {
+    selectedTotem = getTotem(selectedTotemId);
+    if (selectedTotem) {
+      totemReportedConfig = getTotemConfig(selectedTotemId);
+    }
+  }
+
+  res.send(dashboardPage(user, clientTotems, selectedTotemId, activeTotems,
+    { totalSalesCount, totalRevenue, todayCount, todayRevenue },
+    recentTxs, config, licenses, totemReportedConfig, selectedTotem));
 });
 
 // ─── API: RENOMEAR TOTEM ──────────────────────────────
@@ -110,17 +127,28 @@ router.post('/config', (req, res) => {
   const user = getUserById(req.session.userId);
   if (!user) return res.status(401).json({ error: 'Nao autorizado' });
 
+  const totemId = req.query.totem || null;
+
+  // Se for por totem, verificar se o totem pertence ao usuario
+  if (totemId) {
+    const totem = getTotem(totemId);
+    if (!totem || totem.user_id !== user.id) return res.status(403).json({ error: 'Totem nao pertence a este usuario' });
+  }
+
   const allowed = ['stone_code', 'mp_public_key', 'mp_access_token',
     'preco_10x15', 'preco_10x15_bulk', 'preco_10x15_threshold',
     'preco_15x20', 'preco_15x20_bulk', 'preco_15x20_threshold',
-    'combo_enabled'];
+    'combo_enabled', 'sizes_enabled'];
+
+  const targetKey = totemId ? `totem_${totemId}` : `user_${user.id}`;
 
   for (const [key, value] of Object.entries(req.body)) {
     if (allowed.includes(key)) {
-      setClientConfig(user.id, key, value);
+      // Salva como user_{id}_{key} ou totem_{totemId}_{key}
+      setClientConfig(targetKey, key, value);
     }
   }
-  log(req.rid, `Config salva: user=${user.id}`);
+  log(req.rid, `Config salva: ${targetKey}`);
   res.json({ success: true });
 });
 
@@ -205,14 +233,18 @@ button:hover { background:#b81d23; }
 </html>`;
 }
 
-function dashboardPage(user, totems, stats, transactions, config, licenses) {
+function dashboardPage(user, allTotems, selectedTotemId, activeTotems, stats, transactions, config, licenses, totemReportedConfig, selectedTotem) {
   const [y, m, d] = new Date().toISOString().slice(0,10).split('-');
   const dateStr = `${d}/${m}/${y}`;
 
   const fmt = (v) => parseFloat(v || 0).toLocaleString('pt-BR', { minimumFractionDigits: 2 });
   const fmtMoney = (v) => `R$ ${fmt(v)}`;
 
-  const totemRows = totems.map((t, i) => {
+  const totemOptions = allTotems.map(t =>
+    `<option value="${t.id}" ${t.id === selectedTotemId ? 'selected' : ''}>${t.name || t.id}</option>`
+  ).join('');
+
+  const totemRows = activeTotems.map((t, i) => {
     const online = t.last_seen && (Date.now() - new Date(t.last_seen+'Z').getTime()) < 180000;
     return `<tr>
       <td><strong>${t.id}</strong></td>
@@ -254,6 +286,7 @@ function dashboardPage(user, totems, stats, transactions, config, licenses) {
   }).join('') || '<tr><td colspan="4" style="text-align:center;color:#999;padding:30px;">Nenhuma licenca ainda</td></tr>';
 
   const comboChecked = config.combo_enabled === '1' ? 'checked' : '';
+  const sizesValue = config.sizes_enabled || 'both';
 
   return `<!DOCTYPE html>
 <html lang="pt-BR">
@@ -332,8 +365,8 @@ tr:hover td { background:#fafafa; }
 <div class="cards">
   <div class="card">
     <div class="card-label">Totens</div>
-    <div class="card-value">${totems.length}</div>
-    <div class="card-sub">${totems.filter(t => t.last_seen && (Date.now() - new Date(t.last_seen+'Z').getTime()) < 180000).length} online</div>
+    <div class="card-value">${activeTotems.length}</div>
+    <div class="card-sub">${activeTotems.filter(t => t.last_seen && (Date.now() - new Date(t.last_seen+'Z').getTime()) < 180000).length} online</div>
   </div>
   <div class="card">
     <div class="card-label">Vendas Hoje</div>
@@ -352,9 +385,22 @@ tr:hover td { background:#fafafa; }
   </div>
 </div>
 
+<!-- Seletor de Totem -->
+${allTotems.length > 1 ? `
+<div class="section" style="padding:16px 24px;">
+  <div style="display:flex;align-items:center;gap:16px;flex-wrap:wrap;">
+    <label style="font-size:14px;font-weight:600;color:#555;">Selecionar Totem:</label>
+    <select onchange="if(this.value) window.location='?totem='+this.value" style="flex:1;min-width:200px;padding:10px 14px;border:2px solid #e0e0e0;border-radius:10px;font-size:14px;outline:none;">
+      <option value="">Todos os totens</option>
+      ${totemOptions}
+    </select>
+    ${selectedTotemId ? `<a href="/client" style="color:#d8232a;font-size:13px;text-decoration:none;">Limpar filtro</a>` : ''}
+  </div>
+</div>` : ''}
+
 <div class="section">
   <h3>📟 Meus Totens</h3>
-  ${totems.length === 0 ? '<div class="alert">Nenhum totem registrado ainda. Quando seu totem conectar, aparecera aqui.</div>' : `
+  ${activeTotems.length === 0 ? '<div class="alert">Nenhum totem registrado ainda. Quando seu totem conectar, aparecera aqui.</div>' : `
   <table>
     <thead><tr><th>ID</th><th>Nome</th><th>Ultima vez</th><th>Status</th><th>Ações</th></tr></thead>
     <tbody>${totemRows}</tbody>
@@ -362,8 +408,19 @@ tr:hover td { background:#fafafa; }
 </div>
 
 <div class="section">
-  <h3>⚙️ Configurações</h3>
+  <h3>⚙️ Configurações${selectedTotemId ? ` — ${selectedTotem?.name || selectedTotemId}` : ''}</h3>
   <div id="toast" class="toast">Salvo com sucesso!</div>
+
+  ${selectedTotemId && Object.keys(totemReportedConfig).length > 0 ? `
+  <div style="background:#f8f9ff;border:1px solid #dde1ff;border-radius:12px;padding:16px;margin-bottom:20px;">
+    <h4 style="font-size:13px;font-weight:700;color:#444;margin-bottom:12px;">📡 Valores atuais do kiosk (lidos do totem)</h4>
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;font-size:13px;">
+      ${totemReportedConfig.stoneCode ? `<div><span style="color:#888;">Stone Code:</span> <strong>${totemReportedConfig.stoneCode}</strong></div>` : ''}
+      ${totemReportedConfig.mpPublicKey ? `<div><span style="color:#888;">MP Public Key:</span> <strong>${totemReportedConfig.mpPublicKey}</strong></div>` : ''}
+      ${totemReportedConfig.mpAccessToken ? `<div><span style="color:#888;">MP Access Token:</span> <strong style="color:#16a34a;">✓ Configurado</strong></div>` : '<div><span style="color:#888;">MP Access Token:</span> <strong style="color:#ef4444;">Não configurado</strong></div>'}
+    </div>
+  </div>` : ''}
+
   <form id="configForm" class="form-grid">
 
     <div class="form-group full" style="border-bottom:1px solid #f0f0f0;padding-bottom:12px;margin-bottom:8px;">
@@ -441,6 +498,33 @@ tr:hover td { background:#fafafa; }
 </div>
 
 <div class="section">
+  <h3>🖼️ Tamanhos Disponíveis</h3>
+  <div style="display:flex;gap:16px;flex-wrap:wrap;">
+    <label style="display:flex;align-items:center;gap:10px;padding:14px 20px;background:#f5f5f5;border-radius:12px;cursor:pointer;flex:1;min-width:150px;">
+      <input type="radio" name="sizes_enabled" value="both" ${config.sizes_enabled === '10x15' ? '' : config.sizes_enabled === '15x20' ? '' : 'checked'} onchange="saveSize(this.value)" style="width:18px;height:18px;accent-color:#d8232a;">
+      <div>
+        <div style="font-weight:600;font-size:14px;">10×15cm e 15×20cm</div>
+        <div style="font-size:12px;color:#888;">Ambos os tamanhos</div>
+      </div>
+    </label>
+    <label style="display:flex;align-items:center;gap:10px;padding:14px 20px;background:#f5f5f5;border-radius:12px;cursor:pointer;flex:1;min-width:150px;">
+      <input type="radio" name="sizes_enabled" value="10x15" ${config.sizes_enabled === '10x15' ? 'checked' : ''} onchange="saveSize(this.value)" style="width:18px;height:18px;accent-color:#d8232a;">
+      <div>
+        <div style="font-weight:600;font-size:14px;">Só 10×15cm</div>
+        <div style="font-size:12px;color:#888;">Apenas 4×6"</div>
+      </div>
+    </label>
+    <label style="display:flex;align-items:center;gap:10px;padding:14px 20px;background:#f5f5f5;border-radius:12px;cursor:pointer;flex:1;min-width:150px;">
+      <input type="radio" name="sizes_enabled" value="15x20" ${config.sizes_enabled === '15x20' ? 'checked' : ''} onchange="saveSize(this.value)" style="width:18px;height:18px;accent-color:#d8232a;">
+      <div>
+        <div style="font-weight:600;font-size:14px;">Só 15×20cm</div>
+        <div style="font-size:12px;color:#888;">Apenas 6×8"</div>
+      </div>
+    </label>
+  </div>
+</div>
+
+<div class="section">
   <h3>📋 Transações Recentes</h3>
   <table>
     <thead><tr><th>Data</th><th>Código</th><th>Itens</th><th>Valor</th><th>Status</th><th>Pagamento</th></tr></thead>
@@ -468,7 +552,8 @@ document.getElementById('configForm').onsubmit = async function(e) {
   const form = new FormData(this);
   const data = {};
   for (const [key, val] of form.entries()) data[key] = val;
-  await fetch('/client/config', {
+  const url = ${selectedTotemId ? `'/client/config?totem=' + encodeURIComponent('${selectedTotemId}')` : "'/client/config'"};
+  await fetch(url, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(data)
@@ -477,6 +562,18 @@ document.getElementById('configForm').onsubmit = async function(e) {
   toast.style.display = 'block';
   setTimeout(() => toast.style.display = 'none', 2500);
 };
+
+async function saveSize(value) {
+  await fetch('/client/config', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ sizes_enabled: value })
+  });
+  const toast = document.getElementById('toast');
+  toast.textContent = 'Tamanho salvo!';
+  toast.style.display = 'block';
+  setTimeout(() => toast.style.display = 'none', 2500);
+}
 
 function renameTotem(idx, totemId) {
   document.getElementById('name-text-' + idx).style.display = 'none';
