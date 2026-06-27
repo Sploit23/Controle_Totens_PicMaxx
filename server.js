@@ -42,7 +42,7 @@ app.get('/', (req, res) => res.redirect('/admin'));
 function seedInitialUser() {
   const db = getDB();
   const { createLicense } = require('./database');
-  const TEST_LICENSE = 'LIC-TEST-1234-5678';
+  const TEST_LICENSE = 'LIC-A1B2-C3D4-E5F6';
 
   let userId;
   const existing = getUserByEmail('flavio@reveleagora.com.br');
