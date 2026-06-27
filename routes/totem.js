@@ -1,6 +1,7 @@
 const express = require('express');
 const { registerTotem, createTransaction, createFailedTransaction, getAllPrices,
         getLicenseByToken, bindLicenseToTotem, bindTotemToUser, getUserById,
+        getTotem, getDB,
         updateTotemConfig } = require('../database');
 
 function log(rid, msg, data) {
@@ -8,6 +9,30 @@ function log(rid, msg, data) {
   const prefix = rid ? `[${ts}][${rid}]` : `[${ts}]`;
   if (data) console.log(`${prefix} ${msg}`, data);
   else console.log(`${prefix} ${msg}`);
+}
+
+function getExtraConfig(totemId) {
+  const db = getDB();
+  let userId = null;
+  const totem = db.prepare(`SELECT user_id FROM totems WHERE id = ?`).get(totemId);
+  if (totem) userId = totem.user_id;
+
+  const getVal = (key) => {
+    const t = db.prepare(`SELECT value FROM config WHERE key = ?`).get(`totem_${totemId}_${key}`);
+    if (t && t.value !== null && t.value !== '') return t.value;
+    if (userId) {
+      const u = db.prepare(`SELECT value FROM config WHERE key = ?`).get(`user_${userId}_${key}`);
+      if (u && u.value !== null && u.value !== '') return u.value;
+    }
+    const g = db.prepare(`SELECT value FROM config WHERE key = ?`).get(key);
+    if (g && g.value !== null && g.value !== '') return g.value;
+    return null;
+  };
+
+  return {
+    combo_enabled: getVal('combo_enabled') || '1',
+    sizes_enabled: getVal('sizes_enabled') || 'both',
+  };
 }
 
 const router = express.Router();
@@ -44,8 +69,9 @@ router.post('/register', (req, res) => {
   }
 
   const prices = getAllPrices(totemId);
+  const extra = getExtraConfig(totemId);
   log(req.rid, `Totem registrado: ${totemId}`);
-  res.json({ success: true, prices });
+  res.json({ success: true, prices, combo_enabled: extra.combo_enabled, sizes_enabled: extra.sizes_enabled });
 });
 
 router.post('/check-license', (req, res) => {
@@ -72,7 +98,8 @@ router.post('/check-license', (req, res) => {
 
 router.get('/config/:totemId', (req, res) => {
   const prices = getAllPrices(req.params.totemId);
-  res.json({ success: true, prices });
+  const extra = getExtraConfig(req.params.totemId);
+  res.json({ success: true, prices, combo_enabled: extra.combo_enabled, sizes_enabled: extra.sizes_enabled });
 });
 
 router.post('/confirm', (req, res) => {
