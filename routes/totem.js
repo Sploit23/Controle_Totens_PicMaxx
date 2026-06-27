@@ -1,6 +1,6 @@
 const express = require('express');
 const { registerTotem, createTransaction, createFailedTransaction, getAllPrices,
-        getLicenseByToken, bindLicenseToTotem, bindTotemToUser } = require('../database');
+        getLicenseByToken, bindLicenseToTotem, bindTotemToUser, getUserById } = require('../database');
 
 function log(rid, msg, data) {
   const ts = new Date().toISOString().replace('T', ' ').slice(0, 19);
@@ -36,6 +36,28 @@ router.post('/register', (req, res) => {
   const prices = getAllPrices(totemId);
   log(req.rid, `Totem registrado: ${totemId}`);
   res.json({ success: true, prices });
+});
+
+router.post('/check-license', (req, res) => {
+  const { licenseToken } = req.body;
+  if (!licenseToken) return res.json({ valid: false, connected: false, error: 'Token nao informado' });
+
+  const license = getLicenseByToken(licenseToken);
+  if (!license) return res.json({ valid: false, connected: false, error: 'Licenca invalida' });
+  if (!license.active) return res.json({ valid: false, connected: false, error: 'Licenca inativa ou expirada' });
+
+  const user = getUserById(license.user_id);
+  if (!user) return res.json({ valid: false, connected: false, error: 'Usuario nao encontrado' });
+
+  log(req.rid, `Licenca validada: ${licenseToken} — ${user.name} (${user.email})`);
+  res.json({
+    valid: true,
+    connected: true,
+    clientName: user.name,
+    clientEmail: user.email,
+    licenseToken: license.token,
+    expiresAt: license.expires_at,
+  });
 });
 
 router.get('/config/:totemId', (req, res) => {
