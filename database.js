@@ -91,64 +91,23 @@ module.exports = {
     db.prepare(`UPDATE totems SET name = ? WHERE id = ?`).run(name, id);
   },
 
-  // ---- Codigos ----
-  createCode(totemId) {
-    const digits = '0123456789';
-    let id = '';
-    for (let i = 0; i < 6; i++) id += digits[Math.floor(Math.random() * digits.length)];
-    const expiresMin = parseInt(process.env.CODE_EXPIRE_MINUTES || '60');
-    if (totemId) {
-      db.prepare(`INSERT OR IGNORE INTO totems (id, name) VALUES (?, ?)`).run(totemId, totemId);
-    }
-    const stmt = db.prepare(`INSERT INTO codes (id, totem_id, expires_at) VALUES (?, ?, datetime('now', '+' || ? || ' minutes'))`);
-    stmt.run(id, totemId || null, expiresMin);
-    return id;
-  },
-
-  getCode(id) {
-    return db.prepare(`SELECT * FROM codes WHERE id = ?`).get(id);
-  },
-
-  addPhoto(codeId, filename, originalName, size) {
-    db.prepare(`INSERT INTO photos (code_id, filename, original_name, size) VALUES (?, ?, ?, ?)`).run(codeId, filename, originalName, size);
-    db.prepare(`UPDATE codes SET photos = photos + 1 WHERE id = ?`).run(codeId);
-  },
-
-  getPhotosByCode(codeId) {
-    return db.prepare(`SELECT * FROM photos WHERE code_id = ?`).all(codeId);
-  },
-
-  useCode(id) {
-    db.prepare(`UPDATE codes SET used = 1, used_at = datetime('now') WHERE id = ?`).run(id);
-  },
-
-  updateCodeTotemId(codeId, totemId) {
-    db.prepare(`UPDATE codes SET totem_id = ? WHERE id = ? AND totem_id IS NULL`).run(totemId, codeId);
+  // ---- Codigos (registro dos codigos usados nas transacoes) ----
+  ensureCode(codeId, totemId) {
+    db.prepare(`INSERT OR IGNORE INTO codes (id, totem_id, expires_at) VALUES (?, ?, datetime('now', '+1 hours'))`).run(codeId, totemId || null);
   },
 
   // ---- Transacoes ----
   createTransaction(codeId, totalValue, items, totemId, paymentMethod, localId = null, isTest = 0) {
+    this.ensureCode(codeId, totemId);
     const result = db.prepare(`INSERT INTO transactions (code_id, totem_id, total_value, items, payment_method, local_id, is_test) VALUES (?, ?, ?, ?, ?, ?, ?)`).run(codeId, totemId || null, totalValue, JSON.stringify(items || []), paymentMethod || 'unknown', localId, isTest ? 1 : 0);
     return result.lastInsertRowid;
   },
 
   createFailedTransaction(codeId, totalValue, items, totemId, paymentMethod, errorReason, localId = null, isTest = 0) {
-    const safeCodeId = codeId || (() => { const c = 'FAILED_' + Date.now(); try { db.prepare(`INSERT OR IGNORE INTO codes (id) VALUES (?)`).run(c); } catch {} return c; })();
+    const safeCodeId = codeId || 'FAILED_' + Date.now();
+    this.ensureCode(safeCodeId, totemId);
     const result = db.prepare(`INSERT INTO transactions (code_id, totem_id, total_value, items, payment_method, status, error_reason, local_id, is_test) VALUES (?, ?, ?, ?, ?, 'failed', ?, ?, ?)`).run(safeCodeId, totemId || null, totalValue || 0, JSON.stringify(items || []), paymentMethod || 'unknown', errorReason || '', localId, isTest ? 1 : 0);
     return result.lastInsertRowid;
-  },
-
-  // ---- Finalizar codigo (apos impressao): deletar fotos do disco e BD ----
-  finalizeCode(codeId) {
-    const uploadDir = path.resolve(process.env.UPLOAD_DIR || './uploads');
-    const photos = db.prepare(`SELECT * FROM photos WHERE code_id = ?`).all(codeId);
-    for (const p of photos) {
-      const filePath = path.join(uploadDir, p.filename);
-      try { if (fs.existsSync(filePath)) fs.unlinkSync(filePath); } catch {}
-    }
-    db.prepare(`DELETE FROM photos WHERE code_id = ?`).run(codeId);
-    db.prepare(`UPDATE codes SET used = 1, used_at = datetime('now') WHERE id = ?`).run(codeId);
-    return photos.length;
   },
 
   getTransactions(limit = 50, totemId = null) {
@@ -160,7 +119,6 @@ module.exports = {
   getStats(totemId = null) {
     const params = totemId ? [totemId] : [];
 
-    // Transacoes completadas (exclui teste do revenue)
     const totalSales = totemId
       ? db.prepare(`SELECT COUNT(*) as count, COALESCE(SUM(CASE WHEN is_test = 0 THEN total_value ELSE 0 END),0) as revenue FROM transactions WHERE status = 'completed' AND totem_id = ?`).get(totemId)
       : db.prepare(`SELECT COUNT(*) as count, COALESCE(SUM(CASE WHEN is_test = 0 THEN total_value ELSE 0 END),0) as revenue FROM transactions WHERE status = 'completed'`).get();
@@ -226,18 +184,5 @@ module.exports = {
       preco_15x20_bulk: getVal('preco_15x20', 'bulk', totemId, p20.bulk),
       preco_15x20_threshold: getVal('preco_15x20', 'threshold', totemId, p20.threshold),
     };
-  },
-
-  // ---- Cleanup ----
-  cleanupExpired() {
-    const uploadDir = path.resolve(process.env.UPLOAD_DIR || './uploads');
-    const expired = db.prepare(`SELECT id, filename FROM photos WHERE code_id IN (SELECT id FROM codes WHERE expires_at < datetime('now') AND used = 0)`).all();
-    for (const p of expired) {
-      try { const fp = path.join(uploadDir, p.filename); if (fs.existsSync(fp)) fs.unlinkSync(fp); } catch {}
-    }
-    const delPhotos = db.prepare(`DELETE FROM photos WHERE code_id IN (SELECT id FROM codes WHERE expires_at < datetime('now') AND used = 0)`);
-    const delCode = db.prepare(`DELETE FROM codes WHERE expires_at < datetime('now') AND used = 0`);
-    delPhotos.run(); delCode.run();
-    return expired.length;
   }
 };
