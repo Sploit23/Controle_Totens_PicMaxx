@@ -5,7 +5,7 @@ const { getUserByEmail, getUserById, getUsers, createUser, updateUser,
         getTransactions, getStats,
         getClientConfig, setClientConfig,
         createLicense, getLicensesByUser, getLicenseByToken, getAllLicenses, updateLicense,
-        hashPassword, verifyPassword } = require('../database');
+        hashPassword, verifyPassword, updateTotemName } = require('../database');
 
 const sessions = new Map();
 
@@ -89,6 +89,22 @@ router.get('/', (req, res) => {
   res.send(dashboardPage(user, clientTotems, { totalSalesCount, totalRevenue, todayCount, todayRevenue }, recentTxs, config, licenses));
 });
 
+// ─── API: RENOMEAR TOTEM ──────────────────────────────
+router.post('/totem/rename', (req, res) => {
+  const user = getUserById(req.session.userId);
+  if (!user) return res.status(401).json({ error: 'Nao autorizado' });
+
+  const { totemId, name } = req.body;
+  if (!totemId || !name) return res.status(400).json({ error: 'totemId e name obrigatorios' });
+
+  const totem = getTotem(totemId);
+  if (!totem || totem.user_id !== user.id) return res.status(403).json({ error: 'Totem nao pertence a este usuario' });
+
+  updateTotemName(totemId, name.trim());
+  log(req.rid, `Totem ${totemId} renomeado para "${name.trim()}" pelo usuario ${user.id}`);
+  res.json({ success: true, name: name.trim() });
+});
+
 // ─── API: SALVAR CONFIG ───────────────────────────────
 router.post('/config', (req, res) => {
   const user = getUserById(req.session.userId);
@@ -144,6 +160,10 @@ module.exports = router;
 //  PAGES HTML
 // ══════════════════════════════════════════════════════════
 
+function escapeHtml(str) {
+  return str.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+}
+
 function loginPage(error) {
   return `<!DOCTYPE html>
 <html lang="pt-BR">
@@ -192,13 +212,21 @@ function dashboardPage(user, totems, stats, transactions, config, licenses) {
   const fmt = (v) => parseFloat(v || 0).toLocaleString('pt-BR', { minimumFractionDigits: 2 });
   const fmtMoney = (v) => `R$ ${fmt(v)}`;
 
-  const totemRows = totems.map(t => {
+  const totemRows = totems.map((t, i) => {
     const online = t.last_seen && (Date.now() - new Date(t.last_seen+'Z').getTime()) < 180000;
     return `<tr>
       <td><strong>${t.id}</strong></td>
-      <td>${t.name || '—'}</td>
+      <td>
+        <span id="name-text-${i}">${t.name || t.id}</span>
+        <input id="name-input-${i}" value="${t.name || t.id}" style="display:none;width:100%;padding:6px 8px;border:2px solid #d8232a;border-radius:8px;font-size:13px;outline:none;">
+      </td>
       <td>${t.last_seen ? new Date(t.last_seen+'Z').toLocaleString('pt-BR') : 'Nunca'}</td>
       <td><span style="display:inline-flex;align-items:center;gap:6px;"><span style="width:10px;height:10px;border-radius:50%;background:${online?'#22c55e':'#ef4444'}"></span>${online?'Online':'Offline'}</span></td>
+      <td>
+        <button id="rename-btn-${i}" onclick="renameTotem(${i},'${t.id}')" style="padding:4px 12px;background:transparent;border:1px solid #ccc;border-radius:6px;cursor:pointer;font-size:12px;">Renomear</button>
+        <button id="save-btn-${i}" onclick="saveName(${i},'${t.id}')" style="display:none;padding:4px 12px;background:#d8232a;color:#fff;border:none;border-radius:6px;cursor:pointer;font-size:12px;">Salvar</button>
+        <button id="cancel-btn-${i}" onclick="cancelRename(${i},'${escapeHtml(t.name || t.id)}')" style="display:none;padding:4px 12px;background:transparent;border:1px solid #ccc;border-radius:6px;cursor:pointer;font-size:12px;">Cancelar</button>
+      </td>
     </tr>`;
   }).join('');
 
@@ -328,7 +356,7 @@ tr:hover td { background:#fafafa; }
   <h3>📟 Meus Totens</h3>
   ${totems.length === 0 ? '<div class="alert">Nenhum totem registrado ainda. Quando seu totem conectar, aparecera aqui.</div>' : `
   <table>
-    <thead><tr><th>ID</th><th>Nome</th><th>Ultima vez</th><th>Status</th></tr></thead>
+    <thead><tr><th>ID</th><th>Nome</th><th>Ultima vez</th><th>Status</th><th>Ações</th></tr></thead>
     <tbody>${totemRows}</tbody>
   </table>`}
 </div>
@@ -449,6 +477,45 @@ document.getElementById('configForm').onsubmit = async function(e) {
   toast.style.display = 'block';
   setTimeout(() => toast.style.display = 'none', 2500);
 };
+
+function renameTotem(idx, totemId) {
+  document.getElementById('name-text-' + idx).style.display = 'none';
+  document.getElementById('name-input-' + idx).style.display = '';
+  document.getElementById('rename-btn-' + idx).style.display = 'none';
+  document.getElementById('save-btn-' + idx).style.display = '';
+  document.getElementById('cancel-btn-' + idx).style.display = '';
+  document.getElementById('name-input-' + idx).focus();
+}
+
+function cancelRename(idx, originalName) {
+  document.getElementById('name-text-' + idx).style.display = '';
+  document.getElementById('name-input-' + idx).style.display = 'none';
+  document.getElementById('name-input-' + idx).value = originalName;
+  document.getElementById('rename-btn-' + idx).style.display = '';
+  document.getElementById('save-btn-' + idx).style.display = 'none';
+  document.getElementById('cancel-btn-' + idx).style.display = 'none';
+}
+
+async function saveName(idx, totemId) {
+  const name = document.getElementById('name-input-' + idx).value.trim();
+  if (!name) return;
+  try {
+    const res = await fetch('/client/totem/rename', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ totemId, name })
+    });
+    const data = await res.json();
+    if (data.success) {
+      document.getElementById('name-text-' + idx).textContent = data.name;
+      cancelRename(idx, data.name);
+    } else {
+      alert(data.error || 'Erro ao renomear');
+    }
+  } catch (e) {
+    alert('Erro de rede');
+  }
+}
 </script>
 
 </body>
