@@ -33,19 +33,7 @@ app.use(cookieParser());
 app.use('/api/totem', totemRoute);
 app.use('/admin', adminRoute);
 
-app.get('/', (req, res) => {
-  res.json({
-    name: 'Controle Maxx API',
-    version: '1.0.0',
-    endpoints: {
-      register: 'POST /api/totem/register',
-      config: 'GET /api/totem/config/:totemId',
-      confirm: 'POST /api/totem/confirm',
-      'transaction-failed': 'POST /api/totem/transaction-failed',
-      admin: '/admin'
-    }
-  });
-});
+app.get('/', (req, res) => res.redirect('/admin'));
 
 app.listen(PORT, '0.0.0.0', () => {
   console.log(`[Controle Maxx] Rodando em http://0.0.0.0:${PORT}`);
