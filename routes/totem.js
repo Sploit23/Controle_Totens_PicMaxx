@@ -24,9 +24,6 @@ router.post('/register', (req, res) => {
     if (license.totem_id && license.totem_id !== totemId)
       return res.status(400).json({ success: false, error: 'Licenca ja vinculada a outro totem' });
 
-    // Vincular totem ao usuario dono da licenca
-    bindTotemToUser(totemId, license.user_id);
-
     // Vincular licenca ao totem (se ainda nao tiver)
     if (!license.totem_id) bindLicenseToTotem(licenseToken, totemId);
 
@@ -34,6 +31,12 @@ router.post('/register', (req, res) => {
   }
 
   registerTotem(totemId, name || totemId);
+
+  // Vincular totem ao usuario dono da licenca (depois de registerTotem garantir que o registro existe)
+  if (licenseToken) {
+    const license = getLicenseByToken(licenseToken);
+    if (license) bindTotemToUser(totemId, license.user_id);
+  }
 
   // Armazenar config reportada pelo kiosk
   if (localConfig) {
