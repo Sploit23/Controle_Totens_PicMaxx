@@ -280,6 +280,19 @@ module.exports = {
     }
   },
 
+  bindLicenseToTotem(token, totemId) {
+    db.prepare(`UPDATE licenses SET totem_id = ? WHERE token = ? AND totem_id IS NULL`).run(totemId, token);
+  },
+
+  // ---- Vincular totem a um usuario ----
+  bindTotemToUser(totemId, userId) {
+    db.prepare(`UPDATE totems SET user_id = ? WHERE id = ?`).run(userId, totemId);
+  },
+
+  getTotemsByUser(userId) {
+    return db.prepare(`SELECT * FROM totems WHERE user_id = ? ORDER BY name`).all(userId);
+  },
+
   // ---- Client Config ----
   getClientConfig(userId) {
     const rows = db.prepare(`SELECT key, value FROM config WHERE key LIKE ?`).all(`user_${userId}_%`);

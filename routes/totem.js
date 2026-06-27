@@ -1,5 +1,6 @@
 const express = require('express');
-const { registerTotem, createTransaction, createFailedTransaction, getAllPrices } = require('../database');
+const { registerTotem, createTransaction, createFailedTransaction, getAllPrices,
+        getLicenseByToken, bindLicenseToTotem, bindTotemToUser } = require('../database');
 
 function log(rid, msg, data) {
   const ts = new Date().toISOString().replace('T', ' ').slice(0, 19);
@@ -11,8 +12,26 @@ function log(rid, msg, data) {
 const router = express.Router();
 
 router.post('/register', (req, res) => {
-  const { totemId, name } = req.body;
+  const { totemId, name, licenseToken } = req.body;
   if (!totemId) return res.status(400).json({ success: false, error: 'totemId obrigatorio' });
+
+  // Validar licenca se enviada
+  if (licenseToken) {
+    const license = getLicenseByToken(licenseToken);
+    if (!license) return res.status(404).json({ success: false, error: 'Licenca invalida' });
+    if (!license.active) return res.status(400).json({ success: false, error: 'Licenca inativa ou expirada' });
+    if (license.totem_id && license.totem_id !== totemId)
+      return res.status(400).json({ success: false, error: 'Licenca ja vinculada a outro totem' });
+
+    // Vincular totem ao usuario dono da licenca
+    bindTotemToUser(totemId, license.user_id);
+
+    // Vincular licenca ao totem (se ainda nao tiver)
+    if (!license.totem_id) bindLicenseToTotem(licenseToken, totemId);
+
+    log(req.rid, `Totem ${totemId} vinculado ao usuario ${license.user_name || license.user_id} via licenca ${licenseToken}`);
+  }
+
   registerTotem(totemId, name || totemId);
   const prices = getAllPrices(totemId);
   log(req.rid, `Totem registrado: ${totemId}`);

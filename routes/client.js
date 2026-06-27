@@ -1,7 +1,7 @@
 const express = require('express');
 const crypto = require('crypto');
 const { getUserByEmail, getUserById, getUsers, createUser, updateUser,
-        getTotems, getTotem, registerTotem,
+        getTotems, getTotem, getTotemsByUser, registerTotem,
         getTransactions, getStats,
         getClientConfig, setClientConfig,
         createLicense, getLicensesByUser, getLicenseByToken, getAllLicenses, updateLicense,
@@ -63,7 +63,7 @@ router.get('/', (req, res) => {
   const user = getUserById(req.session.userId);
   if (!user) { req.session = null; return res.redirect('/client/login'); }
 
-  const clientTotems = getTotems().filter(t => t.user_id === user.id || !t.user_id);
+  const clientTotems = getTotemsByUser(user.id);
   const totemIds = clientTotems.map(t => t.id);
 
   const statsAll = getStats();

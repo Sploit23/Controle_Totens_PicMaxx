@@ -1,7 +1,14 @@
 const express = require('express');
 const crypto = require('crypto');
 const { getStats, getTransactions, getTotems, getTotem, getAllPrices, setConfig, updateTotemName,
-        getUsers, getAllLicenses } = require('../database');
+        getUsers, getAllLicenses, createLicense, updateLicense } = require('../database');
+
+function log(rid, msg, data) {
+  const ts = new Date().toISOString().replace('T', ' ').slice(0, 19);
+  const prefix = rid ? `[${ts}][${rid}]` : `[${ts}]`;
+  if (data) console.log(`${prefix} ${msg}`, data);
+  else console.log(`${prefix} ${msg}`);
+}
 
 function paymentLabel(method) {
   const labels = { pix: 'PIX', credit: 'Crédito', debit: 'Débito', test: 'Teste', money: 'Dinheiro', unknown: '—' };
@@ -58,7 +65,8 @@ router.get('/', (req, res) => {
   const saved = req.query.saved === '1';
   const users = getUsers();
   const licenses = getAllLicenses();
-  res.send(dashboardPage({ stats, transactions, totems, prices, selectedTotem, totemId, saved, users, licenses }));
+  const licenseCreated = req.query.license === 'created';
+  res.send(dashboardPage({ stats, transactions, totems, prices, selectedTotem, totemId, saved, users, licenses, licenseCreated }));
 });
 
 router.post('/config', (req, res) => {
@@ -78,6 +86,14 @@ router.post('/totem/rename', (req, res) => {
   const { totemId, name } = req.body;
   if (totemId && name) updateTotemName(totemId, name);
   res.redirect(`/admin?totem=${totemId}`);
+});
+
+router.post('/license/create', (req, res) => {
+  const { userId } = req.body;
+  if (!userId) return res.status(400).send('userId obrigatorio');
+  const token = createLicense(parseInt(userId));
+  log(null, `Licenca criada via admin: ${token} para usuario ${userId}`);
+  res.redirect('/admin?license=created');
 });
 
 function loginPage(error) {
@@ -120,7 +136,9 @@ input:focus { border-color:#302b63; }
 
 function dashboardPage(data) {
   const { stats, transactions, totems, prices, selectedTotem, totemId, saved, users, licenses } = data;
+  const licenseCreated = data.licenseCreated || false;
   const savedMsg = saved ? '<div class="msg-success">Precos salvos com sucesso!</div>' : '';
+  const licenseMsg = licenseCreated ? '<div class="msg-success">Licenca criada com sucesso!</div>' : '';
 
   const totemOpts = totems.map(t =>
     `<option value="${t.id}" ${t.id === totemId ? 'selected' : ''}>${t.name || t.id}</option>`
@@ -350,6 +368,38 @@ td { padding:12px 14px; font-size:14px; border-bottom:1px solid #f5f5f5; }
       }).join('') || '<tr><td colspan="8" class="empty">Nenhum cliente</td></tr>'}
       </tbody>
     </table>
+  </div>
+
+  <div class="section">
+    <h2>Licencas <span class="count">(${licenses.length})</span></h2>
+    ${licenseMsg}
+    <div style="display:flex;gap:20px;align-items:start;flex-wrap:wrap;">
+      <div style="flex:1;min-width:300px;">
+        <table>
+          <thead><tr><th>Token</th><th>Cliente</th><th>Totem</th><th>Expira</th><th>Status</th></tr></thead>
+          <tbody>${licenses.map(l => `<tr>
+            <td class="cell-mono" style="font-size:11px">${l.token}</td>
+            <td>${l.user_name || '#' + l.user_id}</td>
+            <td>${l.totem_id || '—'}</td>
+            <td style="font-size:13px;color:#999">${l.expires_at ? new Date(l.expires_at+'Z').toLocaleDateString('pt-BR') : '—'}</td>
+            <td><span class="badge ${l.active ? 'badge-ok' : 'badge-fail'}">${l.active ? 'Ativa' : 'Inativa'}</span></td>
+          </tr>`).join('') || '<tr><td colspan="5" class="empty">Nenhuma licenca</td></tr>'}
+          </tbody>
+        </table>
+      </div>
+      <div style="min-width:220px;background:#f8f9fa;border-radius:14px;padding:20px;border:1px solid #eee;">
+        <h3 style="font-size:15px;font-weight:700;margin-bottom:14px;">Criar Licenca</h3>
+        <form method="POST" action="/admin/license/create">
+          <div style="margin-bottom:12px;">
+            <label style="display:block;font-size:11px;font-weight:600;color:#666;margin-bottom:3px;">Cliente</label>
+            <select name="userId" style="padding:8px 12px;border:2px solid #e0e0e0;border-radius:8px;font-size:14px;width:100%;outline:none;">
+              ${users.map(u => `<option value="${u.id}">${u.name} (${u.email})</option>`).join('')}
+            </select>
+          </div>
+          <button class="btn btn-primary" style="width:100%;">Gerar Licenca</button>
+        </form>
+      </div>
+    </div>
   </div>
 
   <div class="section">
