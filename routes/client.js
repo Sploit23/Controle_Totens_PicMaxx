@@ -63,47 +63,47 @@ router.get('/', (req, res) => {
   const user = getUserById(req.session.userId);
   if (!user) { req.session = null; return res.redirect('/client/login'); }
 
+  const page = req.query.page || 'kiosk';
+  const selectedTotemId = req.query.totem || '';
   const clientTotems = getTotemsByUser(user.id);
-  const totemIds = clientTotems.map(t => t.id);
-  const selectedTotemId = req.query.totem || (clientTotems.length === 1 ? clientTotems[0].id : '');
-
-  // Se um totem foi selecionado, usar so dados dele
-  const activeTotems = selectedTotemId ? clientTotems.filter(t => t.id === selectedTotemId) : clientTotems;
-  const activeTotemIds = activeTotems.map(t => t.id);
-
-  const statsAll = getStats();
-  let totalSalesCount = 0, totalRevenue = 0, todayCount = 0, todayRevenue = 0;
-  for (const tid of activeTotemIds.length ? activeTotemIds : totemIds) {
-    const s = getStats(tid);
-    totalSalesCount += s.totalSales.count;
-    totalRevenue += parseFloat(s.totalSales.revenue);
-    todayCount += s.todaySales.count;
-    todayRevenue += parseFloat(s.todaySales.revenue);
-  }
-
-  const recentTxs = [];
-  for (const tid of activeTotemIds.length ? activeTotemIds : totemIds) {
-    recentTxs.push(...getTransactions(50, tid));
-  }
-  recentTxs.sort((a, b) => b.created_at.localeCompare(a.created_at));
-  recentTxs.splice(50);
-
-  const config = getClientConfig(user.id);
   const licenses = getLicensesByUser(user.id);
+  const config = getClientConfig(user.id);
 
-  // Config do totem selecionado (reportada pelo kiosk)
-  let totemReportedConfig = {};
-  let selectedTotem = null;
-  if (selectedTotemId) {
-    selectedTotem = getTotem(selectedTotemId);
-    if (selectedTotem) {
-      totemReportedConfig = getTotemConfig(selectedTotemId);
+  // Variaveis compartilhadas
+  let pageTitle = 'Kiosk', pageContent = '';
+
+  if (page === 'kiosk' && selectedTotemId) {
+    const totem = getTotem(selectedTotemId);
+    if (!totem || totem.user_id !== user.id) return res.redirect('/client?page=kiosk');
+    pageTitle = totem.name || totem.id;
+    const reportedConfig = getTotemConfig(selectedTotemId);
+    const stats = getStats(selectedTotemId);
+    const txs = getTransactions(50, selectedTotemId);
+    pageContent = kioskDetailPage(user, totem, reportedConfig, config, stats, txs);
+  } else if (page === 'licenses') {
+    pageTitle = 'Licenças';
+    pageContent = licensesPage(user, licenses);
+  } else if (page === 'settings') {
+    pageTitle = 'Cadastros';
+    pageContent = settingsPage(user, config);
+  } else if (page === 'monitoring') {
+    pageTitle = 'Monitoramento';
+    const stats = {};
+    let allTxs = [];
+    for (const t of clientTotems) {
+      const s = getStats(t.id);
+      stats[t.id] = s;
+      allTxs.push(...getTransactions(100, t.id));
     }
+    allTxs.sort((a, b) => b.created_at.localeCompare(a.created_at));
+    allTxs.splice(100);
+    pageContent = monitoringPage(user, clientTotems, stats, allTxs);
+  } else {
+    // Kiosk list (default)
+    pageContent = kioskListPage(user, clientTotems, config);
   }
 
-  res.send(dashboardPage(user, clientTotems, selectedTotemId, activeTotems,
-    { totalSalesCount, totalRevenue, todayCount, todayRevenue },
-    recentTxs, config, licenses, totemReportedConfig, selectedTotem));
+  res.send(layoutPage(user, page, pageTitle, pageContent));
 });
 
 // ─── API: RENOMEAR TOTEM ──────────────────────────────
@@ -233,113 +233,89 @@ button:hover { background:#b81d23; }
 </html>`;
 }
 
-function dashboardPage(user, allTotems, selectedTotemId, activeTotems, stats, transactions, config, licenses, totemReportedConfig, selectedTotem) {
-  const [y, m, d] = new Date().toISOString().slice(0,10).split('-');
-  const dateStr = `${d}/${m}/${y}`;
+// ══════════════════════════════════════════════════════════
+//  PAGE FUNCTIONS (tabbed navigation)
+// ══════════════════════════════════════════════════════════
 
-  const fmt = (v) => parseFloat(v || 0).toLocaleString('pt-BR', { minimumFractionDigits: 2 });
-  const fmtMoney = (v) => `R$ ${fmt(v)}`;
+function fmt(v) { return parseFloat(v || 0).toLocaleString('pt-BR', { minimumFractionDigits: 2 }); }
+function fmtMoney(v) { return `R$ ${fmt(v)}`; }
 
-  const totemOptions = allTotems.map(t =>
-    `<option value="${t.id}" ${t.id === selectedTotemId ? 'selected' : ''}>${t.name || t.id}</option>`
+// ─── LAYOUT with nav tabs ───────────────────────────────
+function layoutPage(user, activePage, pageTitle, pageContent) {
+  const tabs = [
+    { id: 'kiosk',       label: 'Kiosk' },
+    { id: 'licenses',    label: 'Licenças' },
+    { id: 'settings',    label: 'Cadastros' },
+    { id: 'monitoring',  label: 'Monitoramento' },
+  ];
+
+  const navTabs = tabs.map(t =>
+    `<a href="/client?page=${t.id}" class="nav-tab${activePage === t.id ? ' active' : ''}">${t.label}</a>`
   ).join('');
-
-  const totemRows = activeTotems.map((t, i) => {
-    const online = t.last_seen && (Date.now() - new Date(t.last_seen+'Z').getTime()) < 180000;
-    return `<tr>
-      <td><strong>${t.id}</strong></td>
-      <td>
-        <span id="name-text-${i}">${t.name || t.id}</span>
-        <input id="name-input-${i}" value="${t.name || t.id}" style="display:none;width:100%;padding:6px 8px;border:2px solid #d8232a;border-radius:8px;font-size:13px;outline:none;">
-      </td>
-      <td>${t.last_seen ? new Date(t.last_seen+'Z').toLocaleString('pt-BR') : 'Nunca'}</td>
-      <td><span style="display:inline-flex;align-items:center;gap:6px;"><span style="width:10px;height:10px;border-radius:50%;background:${online?'#22c55e':'#ef4444'}"></span>${online?'Online':'Offline'}</span></td>
-      <td>
-        <button id="rename-btn-${i}" onclick="renameTotem(${i},'${t.id}')" style="padding:4px 12px;background:transparent;border:1px solid #ccc;border-radius:6px;cursor:pointer;font-size:12px;">Renomear</button>
-        <button id="save-btn-${i}" onclick="saveName(${i},'${t.id}')" style="display:none;padding:4px 12px;background:#d8232a;color:#fff;border:none;border-radius:6px;cursor:pointer;font-size:12px;">Salvar</button>
-        <button id="cancel-btn-${i}" onclick="cancelRename(${i},'${escapeHtml(t.name || t.id)}')" style="display:none;padding:4px 12px;background:transparent;border:1px solid #ccc;border-radius:6px;cursor:pointer;font-size:12px;">Cancelar</button>
-      </td>
-    </tr>`;
-  }).join('');
-
-  const txRows = transactions.map(t => {
-    const items = JSON.parse(t.items || '[]');
-    const itemStr = items.map(i => `${i.qty}x ${i.type}`).join(', ') || '—';
-    const methodLabels = { pix:'PIX', credit:'Crédito', debit:'Débito', test:'Teste', money:'Dinheiro', unknown:'—' };
-    return `<tr>
-      <td>${t.created_at ? new Date(t.created_at+'Z').toLocaleString('pt-BR') : '—'}</td>
-      <td>${t.code_id || '—'}</td>
-      <td>${itemStr}</td>
-      <td>${fmtMoney(t.total_value)}</td>
-      <td><span class="badge badge-${t.status}">${t.status === 'completed' ? 'Aprovado' : 'Falha'}</span></td>
-      <td>${methodLabels[t.payment_method] || t.payment_method}</td>
-    </tr>`;
-  }).join('') || '<tr><td colspan="6" style="text-align:center;color:#999;padding:30px;">Nenhuma transacao ainda</td></tr>';
-
-  const licenseRows = licenses.map(l => {
-    return `<tr>
-      <td><code style="font-size:13px;background:#f0f0f0;padding:4px 8px;border-radius:6px;">${l.token}</code></td>
-      <td>${l.totem_id || '—'}</td>
-      <td>${l.expires_at ? new Date(l.expires_at+'Z').toLocaleDateString('pt-BR') : '—'}</td>
-      <td><span class="badge badge-${l.active ? 'completed' : 'failed'}">${l.active ? 'Ativa' : 'Inativa'}</span></td>
-    </tr>`;
-  }).join('') || '<tr><td colspan="4" style="text-align:center;color:#999;padding:30px;">Nenhuma licenca ainda</td></tr>';
-
-  const comboChecked = config.combo_enabled === '1' ? 'checked' : '';
-  const sizesValue = config.sizes_enabled || 'both';
 
   return `<!DOCTYPE html>
 <html lang="pt-BR">
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Minha Conta — ${user.name}</title>
+<title>${pageTitle} — ${user.name}</title>
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;900&display=swap" rel="stylesheet">
 <style>
-* { margin:0; padding:0; box-sizing:border-box; }
-body { font-family:'Inter',sans-serif; background:#f5f5f5; color:#1a1a1a; }
-.header { background:#fff; border-bottom:1px solid #e5e5e5; padding:16px 32px; display:flex; align-items:center; justify-content:space-between; }
-.header-left { display:flex; align-items:center; gap:12px; }
-.header-logo { width:36px; height:36px; background:#d8232a; border-radius:10px; display:flex; align-items:center; justify-content:center; color:#fff; font-weight:900; font-size:16px; }
-.header h2 { font-size:18px; font-weight:700; }
-.header-right { display:flex; align-items:center; gap:16px; }
-.header-right span { color:#666; font-size:14px; }
-.btn-logout { padding:8px 16px; background:transparent; border:1px solid #e0e0e0; border-radius:8px; cursor:pointer; font-size:13px; color:#666; text-decoration:none; transition:.2s; }
-.btn-logout:hover { background:#f5f5f5; color:#d8232a; border-color:#d8232a; }
-.container { max-width:1100px; margin:0 auto; padding:24px 32px; }
-.cards { display:grid; grid-template-columns:repeat(auto-fit,minmax(200px,1fr)); gap:16px; margin-bottom:32px; }
-.card { background:#fff; border-radius:16px; padding:20px 24px; box-shadow:0 2px 8px rgba(0,0,0,.04); }
-.card-label { font-size:12px; font-weight:600; color:#999; text-transform:uppercase; letter-spacing:.5px; margin-bottom:4px; }
-.card-value { font-size:28px; font-weight:900; color:#1a1a1a; }
-.card-sub { font-size:12px; color:#999; margin-top:2px; }
-.section { background:#fff; border-radius:16px; padding:24px; margin-bottom:24px; box-shadow:0 2px 8px rgba(0,0,0,.04); }
-.section h3 { font-size:16px; font-weight:700; margin-bottom:16px; display:flex; align-items:center; gap:8px; }
-table { width:100%; border-collapse:collapse; font-size:13px; }
-th { text-align:left; padding:10px 12px; border-bottom:2px solid #f0f0f0; color:#999; font-weight:600; font-size:11px; text-transform:uppercase; letter-spacing:.5px; }
-td { padding:10px 12px; border-bottom:1px solid #f5f5f5; }
-tr:hover td { background:#fafafa; }
-.badge { display:inline-block; padding:3px 10px; border-radius:20px; font-size:11px; font-weight:600; }
-.badge-completed { background:#e8f5e9; color:#16a34a; }
-.badge-failed { background:#fff0f0; color:#d8232a; }
-.form-grid { display:grid; grid-template-columns:1fr 1fr; gap:16px; }
-.form-group { margin-bottom:4px; }
-.form-group.full { grid-column:1/-1; }
-.form-group label { display:block; font-size:12px; font-weight:600; color:#555; margin-bottom:4px; }
-.form-group input, .form-group select { width:100%; padding:10px 12px; border:2px solid #e0e0e0; border-radius:10px; font-size:14px; outline:none; transition:.2s; }
-.form-group input:focus { border-color:#d8232a; }
-.form-group .hint { font-size:11px; color:#999; margin-top:2px; }
-.toggle-row { display:flex; align-items:center; gap:12px; padding:10px 0; }
-.toggle { width:44px; height:24px; background:#ccc; border-radius:12px; position:relative; cursor:pointer; transition:.2s; flex-shrink:0; }
-.toggle.active { background:#d8232a; }
-.toggle::after { content:''; position:absolute; top:2px; left:2px; width:20px; height:20px; background:#fff; border-radius:50%; transition:.2s; }
-.toggle.active::after { left:22px; }
-.toggle input { display:none; }
-.btn-save { padding:12px 32px; background:#d8232a; color:#fff; font-size:15px; font-weight:700; border:none; border-radius:12px; cursor:pointer; transition:.2s; margin-top:8px; }
-.btn-save:hover { background:#b81d23; }
-.toast { display:none; position:fixed; bottom:32px; right:32px; background:#16a34a; color:#fff; padding:14px 24px; border-radius:12px; font-size:14px; font-weight:600; box-shadow:0 4px 20px rgba(0,0,0,.15); z-index:999; animation:slideUp .3s ease; }
-@keyframes slideUp { from { opacity:0; transform:translateY(20px); } to { opacity:1; transform:translateY(0); } }
-.alert { background:#fff8e1; color:#b8860b; padding:12px 16px; border-radius:12px; font-size:13px; margin-bottom:16px; border:1px solid #ffe082; }
-@media (max-width:700px) { .form-grid { grid-template-columns:1fr; } .container { padding:16px; } }
+*{margin:0;padding:0;box-sizing:border-box;}
+body{font-family:'Inter',sans-serif;background:#f5f5f5;color:#1a1a1a;}
+.header{background:#fff;border-bottom:1px solid #e5e5e5;padding:16px 32px;display:flex;align-items:center;justify-content:space-between;}
+.header-left{display:flex;align-items:center;gap:12px;}
+.header-logo{width:36px;height:36px;background:#d8232a;border-radius:10px;display:flex;align-items:center;justify-content:center;color:#fff;font-weight:900;font-size:16px;}
+.header-left h2{font-size:18px;font-weight:700;}
+.header-right{display:flex;align-items:center;gap:16px;}
+.header-right span{color:#666;font-size:14px;}
+.btn-logout{padding:8px 16px;background:transparent;border:1px solid #e0e0e0;border-radius:8px;cursor:pointer;font-size:13px;color:#666;text-decoration:none;transition:.2s;}
+.btn-logout:hover{background:#f5f5f5;color:#d8232a;border-color:#d8232a;}
+.nav{background:#fff;border-bottom:1px solid #e5e5e5;padding:0 32px;display:flex;gap:0;}
+.nav-tab{padding:14px 28px;font-size:14px;font-weight:600;color:#888;text-decoration:none;border-bottom:3px solid transparent;transition:.2s;}
+.nav-tab:hover{color:#d8232a;}
+.nav-tab.active{color:#d8232a;border-color:#d8232a;}
+.container{max-width:1100px;margin:0 auto;padding:24px 32px;}
+.page-header{margin-bottom:24px;}
+.page-header h1{font-size:22px;font-weight:900;}
+.page-header p{color:#666;font-size:14px;margin-top:4px;}
+.section{background:#fff;border-radius:16px;padding:24px;margin-bottom:24px;box-shadow:0 2px 8px rgba(0,0,0,.04);}
+.section h3{font-size:16px;font-weight:700;margin-bottom:16px;display:flex;align-items:center;gap:8px;}
+table{width:100%;border-collapse:collapse;font-size:13px;}
+th{text-align:left;padding:10px 12px;border-bottom:2px solid #f0f0f0;color:#999;font-weight:600;font-size:11px;text-transform:uppercase;letter-spacing:.5px;}
+td{padding:10px 12px;border-bottom:1px solid #f5f5f5;}
+tr:hover td{background:#fafafa;}
+.badge{display:inline-block;padding:3px 10px;border-radius:20px;font-size:11px;font-weight:600;}
+.badge-completed{background:#e8f5e9;color:#16a34a;}
+.badge-failed{background:#fff0f0;color:#d8232a;}
+.form-grid{display:grid;grid-template-columns:1fr 1fr;gap:16px;}
+.form-group{margin-bottom:4px;}
+.form-group.full{grid-column:1/-1;}
+.form-group label{display:block;font-size:12px;font-weight:600;color:#555;margin-bottom:4px;}
+.form-group input,.form-group select{width:100%;padding:10px 12px;border:2px solid #e0e0e0;border-radius:10px;font-size:14px;outline:none;transition:.2s;}
+.form-group input:focus{border-color:#d8232a;}
+.form-group .hint{font-size:11px;color:#999;margin-top:2px;}
+.toggle-row{display:flex;align-items:center;gap:12px;padding:10px 0;}
+.toggle{width:44px;height:24px;background:#ccc;border-radius:12px;position:relative;cursor:pointer;transition:.2s;flex-shrink:0;}
+.toggle.active{background:#d8232a;}
+.toggle::after{content:'';position:absolute;top:2px;left:2px;width:20px;height:20px;background:#fff;border-radius:50%;transition:.2s;}
+.toggle.active::after{left:22px;}
+.toggle input{display:none;}
+.btn-save{padding:12px 32px;background:#d8232a;color:#fff;font-size:15px;font-weight:700;border:none;border-radius:12px;cursor:pointer;transition:.2s;margin-top:8px;}
+.btn-save:hover{background:#b81d23;}
+.btn-back{padding:8px 16px;background:transparent;border:1px solid #e0e0e0;border-radius:8px;cursor:pointer;font-size:13px;color:#666;text-decoration:none;transition:.2s;display:inline-flex;align-items:center;gap:6px;}
+.btn-back:hover{color:#d8232a;border-color:#d8232a;}
+.toast{display:none;position:fixed;bottom:32px;right:32px;background:#16a34a;color:#fff;padding:14px 24px;border-radius:12px;font-size:14px;font-weight:600;box-shadow:0 4px 20px rgba(0,0,0,.15);z-index:999;animation:slideUp .3s ease;}
+@keyframes slideUp{from{opacity:0;transform:translateY(20px);}to{opacity:1;transform:translateY(0);}}
+.alert{background:#fff8e1;color:#b8860b;padding:12px 16px;border-radius:12px;font-size:13px;margin-bottom:16px;border:1px solid #ffe082;}
+.totem-card{display:flex;align-items:center;gap:16px;padding:16px;border-radius:12px;background:#fafafa;border:1px solid #eee;cursor:pointer;transition:.2s;}
+.totem-card:hover{border-color:#d8232a;box-shadow:0 2px 12px rgba(216,35,42,.08);}
+.totem-card .status-dot{width:12px;height:12px;border-radius:50%;flex-shrink:0;}
+.totem-card .info{flex:1;}
+.totem-card .info strong{font-size:15px;}
+.totem-card .info .sub{font-size:12px;color:#888;margin-top:2px;}
+@media(max-width:700px){.form-grid{grid-template-columns:1fr;}.container{padding:16px;}.nav{padding:0 16px;overflow-x:auto;}}
+${activePage === 'monitoring' ? '.monitoring-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:16px;margin-bottom:24px;}.stat-card{background:#fff;border-radius:12px;padding:16px 20px;box-shadow:0 1px 4px rgba(0,0,0,.04);}.stat-card .label{font-size:11px;font-weight:600;color:#999;text-transform:uppercase;letter-spacing:.5px;}.stat-card .value{font-size:22px;font-weight:900;color:#1a1a1a;margin-top:2px;}' : ''}
 </style>
 </head>
 <body>
@@ -355,114 +331,179 @@ tr:hover td { background:#fafafa; }
   </div>
 </div>
 
+<div class="nav">${navTabs}</div>
+
 <div class="container">
 
-<div style="margin-bottom:24px;">
-  <h1 style="font-size:22px;font-weight:900;">Olá, ${user.name}!</h1>
-  <p style="color:#666;font-size:14px;margin-top:4px;">${dateStr} · Plano <strong>${user.plan === 'basic' ? 'Basic' : user.plan}</strong></p>
+<div class="page-header">
+  <h1>${pageTitle}</h1>
 </div>
 
-<div class="cards">
-  <div class="card">
-    <div class="card-label">Totens</div>
-    <div class="card-value">${activeTotems.length}</div>
-    <div class="card-sub">${activeTotems.filter(t => t.last_seen && (Date.now() - new Date(t.last_seen+'Z').getTime()) < 180000).length} online</div>
+${pageContent}
+
+<div style="text-align:center;padding:24px 0;color:#bbb;font-size:12px;">
+  Revele Agora &copy; 2026 — Controle Maxx
+</div>
+
+</div>
+
+</body>
+</html>`;
+}
+
+// ─── KIOSK LIST ─────────────────────────────────────────
+function kioskListPage(user, clientTotems) {
+  const online = t => t.last_seen && (Date.now() - new Date(t.last_seen+'Z').getTime()) < 180000;
+
+  const cards = clientTotems.map((t, i) => {
+    const isOnline = online(t);
+    return `<a href="/client?page=kiosk&totem=${t.id}" class="totem-card" style="display:flex;text-decoration:none;color:inherit;margin-bottom:8px;">
+      <span class="status-dot" style="background:${isOnline?'#22c55e':'#ef4444'}"></span>
+      <div class="info">
+        <strong>${t.name || t.id}</strong>
+        <div class="sub">${isOnline ? 'Online' : 'Offline'} · ${t.last_seen ? 'Visto em ' + new Date(t.last_seen+'Z').toLocaleString('pt-BR') : 'Nunca conectou'}</div>
+      </div>
+      <span style="font-size:20px;color:#ccc;">›</span>
+    </a>`;
+  }).join('') || '<div class="alert">Nenhum totem registrado. Quando seu totem conectar, aparecerá aqui.</div>';
+
+  const onlineCount = clientTotems.filter(t => online(t)).length;
+
+  return `
+<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:16px;margin-bottom:24px;">
+  <div style="background:#fff;border-radius:12px;padding:16px 20px;box-shadow:0 1px 4px rgba(0,0,0,.04);">
+    <div style="font-size:11px;font-weight:600;color:#999;text-transform:uppercase;letter-spacing:.5px;">Totens</div>
+    <div style="font-size:22px;font-weight:900;color:#1a1a1a;margin-top:2px;">${clientTotems.length}</div>
+    <div style="font-size:11px;color:#999;margin-top:2px;">${onlineCount} online</div>
   </div>
-  <div class="card">
-    <div class="card-label">Vendas Hoje</div>
-    <div class="card-value">${stats.todayCount}</div>
-    <div class="card-sub">${fmtMoney(stats.todayRevenue)}</div>
-  </div>
-  <div class="card">
-    <div class="card-label">Faturamento Total</div>
-    <div class="card-value">${fmtMoney(stats.totalRevenue)}</div>
-    <div class="card-sub">${stats.totalSalesCount} vendas</div>
-  </div>
-  <div class="card">
-    <div class="card-label">Licenças</div>
-    <div class="card-value">${licenses.length}</div>
-    <div class="card-sub">${licenses.filter(l => l.active).length} ativas</div>
+  <div style="background:#fff;border-radius:12px;padding:16px 20px;box-shadow:0 1px 4px rgba(0,0,0,.04);">
+    <div style="font-size:11px;font-weight:600;color:#999;text-transform:uppercase;letter-spacing:.5px;">Offline</div>
+    <div style="font-size:22px;font-weight:900;color:#1a1a1a;margin-top:2px;">${clientTotems.length - onlineCount}</div>
+    <div style="font-size:11px;color:#999;margin-top:2px;">há mais de 3 min</div>
   </div>
 </div>
 
-<!-- Seletor de Totem -->
-${allTotems.length > 1 ? `
-<div class="section" style="padding:16px 24px;">
-  <div style="display:flex;align-items:center;gap:16px;flex-wrap:wrap;">
-    <label style="font-size:14px;font-weight:600;color:#555;">Selecionar Totem:</label>
-    <select onchange="if(this.value) window.location='?totem='+this.value" style="flex:1;min-width:200px;padding:10px 14px;border:2px solid #e0e0e0;border-radius:10px;font-size:14px;outline:none;">
-      <option value="">Todos os totens</option>
-      ${totemOptions}
-    </select>
-    ${selectedTotemId ? `<a href="/client" style="color:#d8232a;font-size:13px;text-decoration:none;">Limpar filtro</a>` : ''}
-  </div>
-</div>` : ''}
+<h3 style="font-size:16px;font-weight:700;margin-bottom:12px;">Seus Totens</h3>
+${cards}`;
+}
 
-<div class="section">
-  <h3>📟 Meus Totens</h3>
-  ${activeTotems.length === 0 ? '<div class="alert">Nenhum totem registrado ainda. Quando seu totem conectar, aparecera aqui.</div>' : `
-  <table>
-    <thead><tr><th>ID</th><th>Nome</th><th>Ultima vez</th><th>Status</th><th>Ações</th></tr></thead>
-    <tbody>${totemRows}</tbody>
-  </table>`}
-</div>
+// ─── KIOSK DETAIL ──────────────────────────────────────
+function kioskDetailPage(user, totem, reportedConfig, config, stats, txs) {
+  const online = totem.last_seen && (Date.now() - new Date(totem.last_seen+'Z').getTime()) < 180000;
+  const methodLabels = { pix:'PIX', credit:'Crédito', debit:'Débito', test:'Teste', money:'Dinheiro', unknown:'—' };
 
-<div class="section">
-  <h3>⚙️ Configurações${selectedTotemId ? ` — ${selectedTotem?.name || selectedTotemId}` : ''}</h3>
-  <div id="toast" class="toast">Salvo com sucesso!</div>
+  const txRows = txs.map(t => {
+    const items = JSON.parse(t.items || '[]');
+    const itemStr = items.map(i => `${i.qty}x ${i.type}`).join(', ') || '—';
+    return `<tr>
+      <td>${t.created_at ? new Date(t.created_at+'Z').toLocaleString('pt-BR') : '—'}</td>
+      <td>${t.code_id || '—'}</td>
+      <td>${itemStr}</td>
+      <td>${fmtMoney(t.total_value)}</td>
+      <td><span class="badge badge-${t.status}">${t.status === 'completed' ? 'Aprovado' : 'Falha'}</span></td>
+      <td>${methodLabels[t.payment_method] || t.payment_method}</td>
+    </tr>`;
+  }).join('') || '<tr><td colspan="6" style="text-align:center;color:#999;padding:30px;">Nenhuma transacao ainda</td></tr>';
 
-  ${selectedTotemId && Object.keys(totemReportedConfig).length > 0 ? `
+  const comboChecked = config.combo_enabled === '1' ? 'active' : '';
+
+  const reportedBlock = Object.keys(reportedConfig).length > 0 ? `
   <div style="background:#f8f9ff;border:1px solid #dde1ff;border-radius:12px;padding:16px;margin-bottom:20px;">
     <h4 style="font-size:13px;font-weight:700;color:#444;margin-bottom:12px;">📡 Valores atuais do kiosk (lidos do totem)</h4>
     <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;font-size:13px;">
-      ${totemReportedConfig.stoneCode ? `<div><span style="color:#888;">Stone Code:</span> <strong>${totemReportedConfig.stoneCode}</strong></div>` : ''}
-      ${totemReportedConfig.mpPublicKey ? `<div><span style="color:#888;">MP Public Key:</span> <strong>${totemReportedConfig.mpPublicKey}</strong></div>` : ''}
-      ${totemReportedConfig.mpAccessToken ? `<div><span style="color:#888;">MP Access Token:</span> <strong style="color:#16a34a;">✓ Configurado</strong></div>` : '<div><span style="color:#888;">MP Access Token:</span> <strong style="color:#ef4444;">Não configurado</strong></div>'}
+      ${reportedConfig.stoneCode ? `<div><span style="color:#888;">Stone Code:</span> <strong>${reportedConfig.stoneCode}</strong></div>` : ''}
+      ${reportedConfig.mpPublicKey ? `<div><span style="color:#888;">MP Public Key:</span> <strong>${reportedConfig.mpPublicKey}</strong></div>` : ''}
+      ${reportedConfig.mpAccessToken ? `<div><span style="color:#888;">MP Access Token:</span> <strong style="color:#16a34a;">✓ Configurado</strong></div>` : '<div><span style="color:#888;">MP Access Token:</span> <strong style="color:#ef4444;">Não configurado</strong></div>'}
     </div>
-  </div>` : ''}
+  </div>` : '';
+
+  return `
+<a href="/client?page=kiosk" class="btn-back" style="margin-bottom:16px;display:inline-flex;">‹ Voltar</a>
+
+<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:16px;margin-bottom:24px;">
+  <div style="background:#fff;border-radius:12px;padding:16px 20px;box-shadow:0 1px 4px rgba(0,0,0,.04);">
+    <div style="font-size:11px;font-weight:600;color:#999;text-transform:uppercase;letter-spacing:.5px;">ID</div>
+    <div style="font-size:16px;font-weight:700;color:#1a1a1a;margin-top:2px;">${totem.id}</div>
+  </div>
+  <div style="background:#fff;border-radius:12px;padding:16px 20px;box-shadow:0 1px 4px rgba(0,0,0,.04);">
+    <div style="font-size:11px;font-weight:600;color:#999;text-transform:uppercase;letter-spacing:.5px;">Status</div>
+    <div style="display:flex;align-items:center;gap:8px;font-size:16px;font-weight:700;color:#1a1a1a;margin-top:2px;">
+      <span style="width:10px;height:10px;border-radius:50%;background:${online?'#22c55e':'#ef4444'}"></span>${online?'Online':'Offline'}
+    </div>
+  </div>
+  <div style="background:#fff;border-radius:12px;padding:16px 20px;box-shadow:0 1px 4px rgba(0,0,0,.04);">
+    <div style="font-size:11px;font-weight:600;color:#999;text-transform:uppercase;letter-spacing:.5px;">Vendas Hoje</div>
+    <div style="font-size:22px;font-weight:900;color:#1a1a1a;margin-top:2px;">${stats.todaySales.count}</div>
+    <div style="font-size:11px;color:#999;margin-top:2px;">${fmtMoney(stats.todaySales.revenue)}</div>
+  </div>
+  <div style="background:#fff;border-radius:12px;padding:16px 20px;box-shadow:0 1px 4px rgba(0,0,0,.04);">
+    <div style="font-size:11px;font-weight:600;color:#999;text-transform:uppercase;letter-spacing:.5px;">Total</div>
+    <div style="font-size:22px;font-weight:900;color:#1a1a1a;margin-top:2px;">${stats.totalSales.count}</div>
+    <div style="font-size:11px;color:#999;margin-top:2px;">${fmtMoney(stats.totalSales.revenue)}</div>
+  </div>
+</div>
+
+<div class="section">
+  <h3>ℹ️ Informações do Totem</h3>
+  <div style="display:flex;flex-direction:column;gap:12px;">
+    <div style="display:flex;align-items:center;gap:12px;">
+      <span style="font-weight:600;font-size:14px;color:#555;min-width:80px;">Nome:</span>
+      <span id="detail-name-text">${totem.name || totem.id}</span>
+      <input id="detail-name-input" value="${totem.name || totem.id}" style="display:none;padding:6px 10px;border:2px solid #d8232a;border-radius:8px;font-size:14px;outline:none;flex:1;max-width:300px;">
+      <button id="detail-rename-btn" onclick="toggleRename()" style="padding:6px 16px;background:transparent;border:1px solid #ccc;border-radius:6px;cursor:pointer;font-size:12px;">Renomear</button>
+      <button id="detail-save-btn" onclick="saveDetailName('${totem.id}')" style="display:none;padding:6px 16px;background:#d8232a;color:#fff;border:none;border-radius:6px;cursor:pointer;font-size:12px;">Salvar</button>
+      <button id="detail-cancel-btn" onclick="cancelDetailRename('${escapeHtml(totem.name || totem.id)}')" style="display:none;padding:6px 16px;background:transparent;border:1px solid #ccc;border-radius:6px;cursor:pointer;font-size:12px;">Cancelar</button>
+    </div>
+    <div style="display:flex;align-items:center;gap:12px;">
+      <span style="font-weight:600;font-size:14px;color:#555;min-width:80px;">Última vez:</span>
+      <span>${totem.last_seen ? new Date(totem.last_seen+'Z').toLocaleString('pt-BR') : 'Nunca'}</span>
+    </div>
+    <div style="display:flex;align-items:center;gap:12px;">
+      <span style="font-weight:600;font-size:14px;color:#555;min-width:80px;">Licença:</span>
+      <span>${totem.license_token ? `<code style="background:#f0f0f0;padding:2px 8px;border-radius:4px;font-size:12px;">${totem.license_token}</code>` : '—'}</span>
+    </div>
+  </div>
+</div>
+
+<div class="section">
+  <h3>⚙️ Configurações — ${totem.name || totem.id}</h3>
+  <div id="toast" class="toast">Salvo com sucesso!</div>
+
+  ${reportedBlock}
 
   <form id="configForm" class="form-grid">
-
     <div class="form-group full" style="border-bottom:1px solid #f0f0f0;padding-bottom:12px;margin-bottom:8px;">
       <h4 style="font-size:14px;font-weight:700;color:#333;">Pagamento</h4>
     </div>
-
     <div class="form-group">
       <label>Código Stone</label>
       <input type="text" name="stone_code" value="${config.stone_code || ''}" placeholder="Ex: 688912528">
-      <div class="hint">Seu código de identificacao Stone</div>
+      <div class="hint">Código de identificação Stone</div>
     </div>
-
     <div class="form-group">
-      <label>Mercado Pago — Public Key</label>
-      <input type="text" name="mp_public_key" value="${config.mp_public_key || ''}" placeholder="Ex: APP_USR-...">
-      <div class="hint">Chave publica do Mercado Pago</div>
+      <label>MP — Public Key</label>
+      <input type="text" name="mp_public_key" value="${config.mp_public_key || ''}" placeholder="APP_USR-...">
     </div>
-
     <div class="form-group full">
-      <label>Mercado Pago — Access Token</label>
-      <input type="password" name="mp_access_token" value="${config.mp_access_token || ''}" placeholder="Deixe em branco para manter o atual" autocomplete="off">
-      <div class="hint">Token de acesso do Mercado Pago</div>
+      <label>MP — Access Token</label>
+      <input type="password" name="mp_access_token" value="${config.mp_access_token || ''}" placeholder="Deixe em branco para manter">
     </div>
 
     <div class="form-group full" style="border-bottom:1px solid #f0f0f0;padding-bottom:12px;margin:8px 0;">
       <h4 style="font-size:14px;font-weight:700;color:#333;">Preços</h4>
     </div>
-
     <div class="form-group">
-      <label>10×15 — Preço Unitário</label>
-      <input type="number" step="0.01" name="preco_10x15" value="${config.preco_10x15 || '5.00'}" placeholder="5.00">
+      <label>10×15 — Unitário</label>
+      <input type="number" step="0.01" name="preco_10x15" value="${config.preco_10x15 || '5.00'}">
     </div>
-
     <div class="form-group">
-      <label>15×20 — Preço Unitário</label>
-      <input type="number" step="0.01" name="preco_15x20" value="${config.preco_15x20 || '10.00'}" placeholder="10.00">
+      <label>15×20 — Unitário</label>
+      <input type="number" step="0.01" name="preco_15x20" value="${config.preco_15x20 || '10.00'}">
     </div>
 
     <div class="form-group full" style="border-bottom:1px solid #f0f0f0;padding-bottom:12px;margin:8px 0;">
       <h4 style="font-size:14px;font-weight:700;color:#333;">Combo (Atacado)</h4>
     </div>
-
     <div class="form-group full">
       <div class="toggle-row">
         <div class="toggle ${comboChecked}" onclick="this.classList.toggle('active');document.getElementById('combo_enabled').value=this.classList.contains('active')?'1':'0'">
@@ -470,58 +511,46 @@ ${allTotems.length > 1 ? `
         </div>
         <span style="font-size:14px;font-weight:500;">Ativar preço combo</span>
       </div>
-      <div class="hint">Mostra "A partir de X unidades" com desconto no kiosk</div>
+      <div class="hint">Mostra "A partir de X unidades" com desconto</div>
     </div>
-
     <div class="form-group">
-      <label>Quantidade mínima para combo</label>
-      <input type="number" name="preco_10x15_threshold" value="${config.preco_10x15_threshold || '5'}" placeholder="5">
-      <div class="hint">Ex: "A partir de 5 unidades"</div>
+      <label>Qtd mínima</label>
+      <input type="number" name="preco_10x15_threshold" value="${config.preco_10x15_threshold || '5'}">
     </div>
-
     <div class="form-group"></div>
-
     <div class="form-group">
-      <label>10×15 — Preço Combo</label>
-      <input type="number" step="0.01" name="preco_10x15_bulk" value="${config.preco_10x15_bulk || '5.00'}" placeholder="5.00">
+      <label>10×15 — Combo</label>
+      <input type="number" step="0.01" name="preco_10x15_bulk" value="${config.preco_10x15_bulk || '5.00'}">
+    </div>
+    <div class="form-group">
+      <label>15×20 — Combo</label>
+      <input type="number" step="0.01" name="preco_15x20_bulk" value="${config.preco_15x20_bulk || '10.00'}">
     </div>
 
-    <div class="form-group">
-      <label>15×20 — Preço Combo</label>
-      <input type="number" step="0.01" name="preco_15x20_bulk" value="${config.preco_15x20_bulk || '10.00'}" placeholder="10.00">
+    <div class="form-group full" style="border-bottom:1px solid #f0f0f0;padding-bottom:12px;margin:8px 0;">
+      <h4 style="font-size:14px;font-weight:700;color:#333;">Tamanhos Disponíveis</h4>
+    </div>
+    <div class="form-group full">
+      <div style="display:flex;gap:12px;flex-wrap:wrap;">
+        <label style="display:flex;align-items:center;gap:8px;padding:12px 16px;background:#f5f5f5;border-radius:10px;cursor:pointer;flex:1;min-width:120px;">
+          <input type="radio" name="sizes_enabled" value="both" ${config.sizes_enabled === '10x15' ? '' : config.sizes_enabled === '15x20' ? '' : 'checked'} onchange="saveSizeInstant(this.value)" style="width:16px;height:16px;accent-color:#d8232a;">
+          <span style="font-size:13px;font-weight:600;">10×15 + 15×20</span>
+        </label>
+        <label style="display:flex;align-items:center;gap:8px;padding:12px 16px;background:#f5f5f5;border-radius:10px;cursor:pointer;flex:1;min-width:120px;">
+          <input type="radio" name="sizes_enabled" value="10x15" ${config.sizes_enabled === '10x15' ? 'checked' : ''} onchange="saveSizeInstant(this.value)" style="width:16px;height:16px;accent-color:#d8232a;">
+          <span style="font-size:13px;font-weight:600;">Só 10×15</span>
+        </label>
+        <label style="display:flex;align-items:center;gap:8px;padding:12px 16px;background:#f5f5f5;border-radius:10px;cursor:pointer;flex:1;min-width:120px;">
+          <input type="radio" name="sizes_enabled" value="15x20" ${config.sizes_enabled === '15x20' ? 'checked' : ''} onchange="saveSizeInstant(this.value)" style="width:16px;height:16px;accent-color:#d8232a;">
+          <span style="font-size:13px;font-weight:600;">Só 15×20</span>
+        </label>
+      </div>
     </div>
 
     <div class="form-group full">
       <button type="submit" class="btn-save">Salvar Configurações</button>
     </div>
   </form>
-</div>
-
-<div class="section">
-  <h3>🖼️ Tamanhos Disponíveis</h3>
-  <div style="display:flex;gap:16px;flex-wrap:wrap;">
-    <label style="display:flex;align-items:center;gap:10px;padding:14px 20px;background:#f5f5f5;border-radius:12px;cursor:pointer;flex:1;min-width:150px;">
-      <input type="radio" name="sizes_enabled" value="both" ${config.sizes_enabled === '10x15' ? '' : config.sizes_enabled === '15x20' ? '' : 'checked'} onchange="saveSize(this.value)" style="width:18px;height:18px;accent-color:#d8232a;">
-      <div>
-        <div style="font-weight:600;font-size:14px;">10×15cm e 15×20cm</div>
-        <div style="font-size:12px;color:#888;">Ambos os tamanhos</div>
-      </div>
-    </label>
-    <label style="display:flex;align-items:center;gap:10px;padding:14px 20px;background:#f5f5f5;border-radius:12px;cursor:pointer;flex:1;min-width:150px;">
-      <input type="radio" name="sizes_enabled" value="10x15" ${config.sizes_enabled === '10x15' ? 'checked' : ''} onchange="saveSize(this.value)" style="width:18px;height:18px;accent-color:#d8232a;">
-      <div>
-        <div style="font-weight:600;font-size:14px;">Só 10×15cm</div>
-        <div style="font-size:12px;color:#888;">Apenas 4×6"</div>
-      </div>
-    </label>
-    <label style="display:flex;align-items:center;gap:10px;padding:14px 20px;background:#f5f5f5;border-radius:12px;cursor:pointer;flex:1;min-width:150px;">
-      <input type="radio" name="sizes_enabled" value="15x20" ${config.sizes_enabled === '15x20' ? 'checked' : ''} onchange="saveSize(this.value)" style="width:18px;height:18px;accent-color:#d8232a;">
-      <div>
-        <div style="font-weight:600;font-size:14px;">Só 15×20cm</div>
-        <div style="font-size:12px;color:#888;">Apenas 6×8"</div>
-      </div>
-    </label>
-  </div>
 </div>
 
 <div class="section">
@@ -532,27 +561,13 @@ ${allTotems.length > 1 ? `
   </table>
 </div>
 
-<div class="section">
-  <h3>🔑 Licenças</h3>
-  <table>
-    <thead><tr><th>Token</th><th>Totem</th><th>Expira</th><th>Status</th></tr></thead>
-    <tbody>${licenseRows}</tbody>
-  </table>
-</div>
-
-<div style="text-align:center;padding:24px 0;color:#999;font-size:12px;">
-  Revele Agora &copy; 2026 — Controle Maxx v1.0
-</div>
-
-</div>
-
 <script>
 document.getElementById('configForm').onsubmit = async function(e) {
   e.preventDefault();
   const form = new FormData(this);
   const data = {};
   for (const [key, val] of form.entries()) data[key] = val;
-  const url = ${selectedTotemId ? `'/client/config?totem=' + encodeURIComponent('${selectedTotemId}')` : "'/client/config'"};
+  const url = '/client/config?totem=' + encodeURIComponent('${totem.id}');
   await fetch(url, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
@@ -563,8 +578,8 @@ document.getElementById('configForm').onsubmit = async function(e) {
   setTimeout(() => toast.style.display = 'none', 2500);
 };
 
-async function saveSize(value) {
-  await fetch('/client/config', {
+async function saveSizeInstant(value) {
+  await fetch('/client/config?totem=' + encodeURIComponent('${totem.id}'), {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ sizes_enabled: value })
@@ -575,26 +590,36 @@ async function saveSize(value) {
   setTimeout(() => toast.style.display = 'none', 2500);
 }
 
-function renameTotem(idx, totemId) {
-  document.getElementById('name-text-' + idx).style.display = 'none';
-  document.getElementById('name-input-' + idx).style.display = '';
-  document.getElementById('rename-btn-' + idx).style.display = 'none';
-  document.getElementById('save-btn-' + idx).style.display = '';
-  document.getElementById('cancel-btn-' + idx).style.display = '';
-  document.getElementById('name-input-' + idx).focus();
+function toggleRename() {
+  const text = document.getElementById('detail-name-text');
+  const input = document.getElementById('detail-name-input');
+  const rb = document.getElementById('detail-rename-btn');
+  const sb = document.getElementById('detail-save-btn');
+  const cb = document.getElementById('detail-cancel-btn');
+  text.style.display = 'none';
+  input.style.display = '';
+  rb.style.display = 'none';
+  sb.style.display = '';
+  cb.style.display = '';
+  input.focus();
 }
 
-function cancelRename(idx, originalName) {
-  document.getElementById('name-text-' + idx).style.display = '';
-  document.getElementById('name-input-' + idx).style.display = 'none';
-  document.getElementById('name-input-' + idx).value = originalName;
-  document.getElementById('rename-btn-' + idx).style.display = '';
-  document.getElementById('save-btn-' + idx).style.display = 'none';
-  document.getElementById('cancel-btn-' + idx).style.display = 'none';
+function cancelDetailRename(orig) {
+  const text = document.getElementById('detail-name-text');
+  const input = document.getElementById('detail-name-input');
+  const rb = document.getElementById('detail-rename-btn');
+  const sb = document.getElementById('detail-save-btn');
+  const cb = document.getElementById('detail-cancel-btn');
+  text.style.display = '';
+  input.style.display = 'none';
+  input.value = orig;
+  rb.style.display = '';
+  sb.style.display = 'none';
+  cb.style.display = 'none';
 }
 
-async function saveName(idx, totemId) {
-  const name = document.getElementById('name-input-' + idx).value.trim();
+async function saveDetailName(totemId) {
+  const name = document.getElementById('detail-name-input').value.trim();
   if (!name) return;
   try {
     const res = await fetch('/client/totem/rename', {
@@ -604,17 +629,237 @@ async function saveName(idx, totemId) {
     });
     const data = await res.json();
     if (data.success) {
-      document.getElementById('name-text-' + idx).textContent = data.name;
-      cancelRename(idx, data.name);
-    } else {
-      alert(data.error || 'Erro ao renomear');
-    }
-  } catch (e) {
-    alert('Erro de rede');
-  }
+      document.getElementById('detail-name-text').textContent = data.name;
+      cancelDetailRename(data.name);
+      document.title = data.name + ' — ' + '${escapeHtml(user.name)}';
+    } else alert(data.error || 'Erro ao renomear');
+  } catch (e) { alert('Erro de rede'); }
 }
-</script>
+</script>`;
+}
 
-</body>
-</html>`;
+// ─── LICENSES ──────────────────────────────────────────
+function licensesPage(user, licenses) {
+  const rows = licenses.map(l =>
+    `<tr>
+      <td><code style="font-size:13px;background:#f0f0f0;padding:4px 8px;border-radius:6px;">${l.token}</code></td>
+      <td>${l.totem_id || '—'}</td>
+      <td>${l.expires_at ? new Date(l.expires_at+'Z').toLocaleDateString('pt-BR') : '—'}</td>
+      <td><span class="badge badge-${l.active ? 'completed' : 'failed'}">${l.active ? 'Ativa' : 'Inativa'}</span></td>
+    </tr>`
+  ).join('') || '<tr><td colspan="4" style="text-align:center;color:#999;padding:30px;">Nenhuma licença ainda</td></tr>';
+
+  const total = licenses.length;
+  const active = licenses.filter(l => l.active).length;
+
+  return `
+<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:16px;margin-bottom:24px;">
+  <div style="background:#fff;border-radius:12px;padding:16px 20px;box-shadow:0 1px 4px rgba(0,0,0,.04);">
+    <div style="font-size:11px;font-weight:600;color:#999;text-transform:uppercase;letter-spacing:.5px;">Total</div>
+    <div style="font-size:22px;font-weight:900;color:#1a1a1a;margin-top:2px;">${total}</div>
+  </div>
+  <div style="background:#fff;border-radius:12px;padding:16px 20px;box-shadow:0 1px 4px rgba(0,0,0,.04);">
+    <div style="font-size:11px;font-weight:600;color:#999;text-transform:uppercase;letter-spacing:.5px;">Ativas</div>
+    <div style="font-size:22px;font-weight:900;color:#16a34a;margin-top:2px;">${active}</div>
+  </div>
+  <div style="background:#fff;border-radius:12px;padding:16px 20px;box-shadow:0 1px 4px rgba(0,0,0,.04);">
+    <div style="font-size:11px;font-weight:600;color:#999;text-transform:uppercase;letter-spacing:.5px;">Inativas</div>
+    <div style="font-size:22px;font-weight:900;color:#ef4444;margin-top:2px;">${total - active}</div>
+  </div>
+</div>
+
+<div class="section">
+  <h3>🔑 Licenças</h3>
+  <table>
+    <thead><tr><th>Token</th><th>Totem</th><th>Expira</th><th>Status</th></tr></thead>
+    <tbody>${rows}</tbody>
+  </table>
+</div>`;
+}
+
+// ─── SETTINGS (Cadastros) ──────────────────────────────
+function settingsPage(user, config) {
+  const comboChecked = config.combo_enabled === '1' ? 'active' : '';
+
+  return `
+<div class="section">
+  <h3>⚙️ Configurações Gerais</h3>
+  <p style="font-size:13px;color:#888;margin-bottom:16px;">Estas configurações valem para todos os totens. Para configurar um totem específico, vá em Kiosk e selecione o totem.</p>
+
+  <div id="toast" class="toast">Salvo com sucesso!</div>
+
+  <form id="settingsForm" class="form-grid">
+    <div class="form-group full" style="border-bottom:1px solid #f0f0f0;padding-bottom:12px;margin-bottom:8px;">
+      <h4 style="font-size:14px;font-weight:700;color:#333;">Pagamento</h4>
+    </div>
+    <div class="form-group">
+      <label>Código Stone</label>
+      <input type="text" name="stone_code" value="${config.stone_code || ''}" placeholder="Ex: 688912528">
+    </div>
+    <div class="form-group">
+      <label>MP — Public Key</label>
+      <input type="text" name="mp_public_key" value="${config.mp_public_key || ''}" placeholder="APP_USR-...">
+    </div>
+    <div class="form-group full">
+      <label>MP — Access Token</label>
+      <input type="password" name="mp_access_token" value="${config.mp_access_token || ''}" placeholder="Deixe em branco para manter">
+    </div>
+
+    <div class="form-group full" style="border-bottom:1px solid #f0f0f0;padding-bottom:12px;margin:8px 0;">
+      <h4 style="font-size:14px;font-weight:700;color:#333;">Preços</h4>
+    </div>
+    <div class="form-group">
+      <label>10×15 — Unitário</label>
+      <input type="number" step="0.01" name="preco_10x15" value="${config.preco_10x15 || '5.00'}">
+    </div>
+    <div class="form-group">
+      <label>15×20 — Unitário</label>
+      <input type="number" step="0.01" name="preco_15x20" value="${config.preco_15x20 || '10.00'}">
+    </div>
+
+    <div class="form-group full" style="border-bottom:1px solid #f0f0f0;padding-bottom:12px;margin:8px 0;">
+      <h4 style="font-size:14px;font-weight:700;color:#333;">Combo (Atacado)</h4>
+    </div>
+    <div class="form-group full">
+      <div class="toggle-row">
+        <div class="toggle ${comboChecked}" onclick="this.classList.toggle('active');document.getElementById('combo_enabled').value=this.classList.contains('active')?'1':'0'">
+          <input type="hidden" id="combo_enabled" name="combo_enabled" value="${config.combo_enabled || '1'}">
+        </div>
+        <span style="font-size:14px;font-weight:500;">Ativar preço combo</span>
+      </div>
+      <div class="hint">Mostra "A partir de X unidades" com desconto</div>
+    </div>
+    <div class="form-group">
+      <label>Qtd mínima</label>
+      <input type="number" name="preco_10x15_threshold" value="${config.preco_10x15_threshold || '5'}">
+    </div>
+    <div class="form-group"></div>
+    <div class="form-group">
+      <label>10×15 — Combo</label>
+      <input type="number" step="0.01" name="preco_10x15_bulk" value="${config.preco_10x15_bulk || '5.00'}">
+    </div>
+    <div class="form-group">
+      <label>15×20 — Combo</label>
+      <input type="number" step="0.01" name="preco_15x20_bulk" value="${config.preco_15x20_bulk || '10.00'}">
+    </div>
+
+    <div class="form-group full">
+      <button type="submit" class="btn-save">Salvar Configurações</button>
+    </div>
+  </form>
+</div>
+
+<div class="section">
+  <h3>👤 Dados da Conta</h3>
+  <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;">
+    <div>
+      <label style="display:block;font-size:12px;font-weight:600;color:#555;margin-bottom:4px;">Nome</label>
+      <div style="font-size:15px;font-weight:600;">${user.name}</div>
+    </div>
+    <div>
+      <label style="display:block;font-size:12px;font-weight:600;color:#555;margin-bottom:4px;">Email</label>
+      <div style="font-size:15px;font-weight:600;">${user.email}</div>
+    </div>
+    <div>
+      <label style="display:block;font-size:12px;font-weight:600;color:#555;margin-bottom:4px;">Plano</label>
+      <div style="font-size:15px;font-weight:600;text-transform:capitalize;">${user.plan || 'basic'}</div>
+    </div>
+  </div>
+</div>
+
+<script>
+document.getElementById('settingsForm').onsubmit = async function(e) {
+  e.preventDefault();
+  const form = new FormData(this);
+  const data = {};
+  for (const [key, val] of form.entries()) data[key] = val;
+  await fetch('/client/config', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(data)
+  });
+  const toast = document.getElementById('toast');
+  toast.style.display = 'block';
+  setTimeout(() => toast.style.display = 'none', 2500);
+};
+</script>`;
+}
+
+// ─── MONITORING ────────────────────────────────────────
+function monitoringPage(user, clientTotems, stats, allTxs) {
+  const methodLabels = { pix:'PIX', credit:'Crédito', debit:'Débito', test:'Teste', money:'Dinheiro', unknown:'—' };
+
+  // Aggregate totals
+  let totalRevenue = 0, totalSales = 0, todayRevenue = 0, todaySales = 0;
+  for (const [tid, s] of Object.entries(stats)) {
+    totalSales += (s.totalSales?.count || 0);
+    totalRevenue += parseFloat(s.totalSales?.revenue || 0);
+    todaySales += (s.todaySales?.count || 0);
+    todayRevenue += parseFloat(s.todaySales?.revenue || 0);
+  }
+
+  const perTotemCards = clientTotems.map(t => {
+    const s = stats[t.id];
+    if (!s) return '';
+    const online = t.last_seen && (Date.now() - new Date(t.last_seen+'Z').getTime()) < 180000;
+    return `<div class="stat-card">
+      <div class="label">${t.name || t.id}</div>
+      <div style="display:flex;align-items:center;gap:6px;margin-top:2px;">
+        <span style="width:8px;height:8px;border-radius:50%;background:${online?'#22c55e':'#ef4444'}"></span>
+        <span style="font-size:13px;color:#666;">${online?'Online':'Offline'}</span>
+      </div>
+      <div style="display:flex;gap:16px;margin-top:8px;">
+        <div><span style="font-size:11px;color:#999;">Hoje</span><br><span style="font-weight:700;font-size:15px;">${s.todaySales?.count || 0}</span></div>
+        <div><span style="font-size:11px;color:#999;">Total</span><br><span style="font-weight:700;font-size:15px;">${s.totalSales?.count || 0}</span></div>
+        <div><span style="font-size:11px;color:#999;">Falhas</span><br><span style="font-weight:700;font-size:15px;color:#ef4444;">${s.failedCount?.count || 0}</span></div>
+      </div>
+    </div>`;
+  }).join('');
+
+  const txRows = allTxs.map(t => {
+    const items = JSON.parse(t.items || '[]');
+    const itemStr = items.map(i => `${i.qty}x ${i.type}`).join(', ') || '—';
+    return `<tr>
+      <td>${t.totem_id || '—'}</td>
+      <td>${t.created_at ? new Date(t.created_at+'Z').toLocaleString('pt-BR') : '—'}</td>
+      <td>${t.code_id || '—'}</td>
+      <td>${itemStr}</td>
+      <td>${fmtMoney(t.total_value)}</td>
+      <td><span class="badge badge-${t.status}">${t.status === 'completed' ? 'Aprovado' : 'Falha'}</span></td>
+      <td>${methodLabels[t.payment_method] || t.payment_method}</td>
+    </tr>`;
+  }).join('') || '<tr><td colspan="7" style="text-align:center;color:#999;padding:30px;">Nenhuma transação</td></tr>';
+
+  return `
+<div class="monitoring-grid">
+  <div class="stat-card">
+    <div class="label">Receita Total</div>
+    <div class="value" style="color:#16a34a;">${fmtMoney(totalRevenue)}</div>
+  </div>
+  <div class="stat-card">
+    <div class="label">Vendas Hoje</div>
+    <div class="value">${todaySales}</div>
+    <div style="font-size:12px;color:#888;">${fmtMoney(todayRevenue)}</div>
+  </div>
+  <div class="stat-card">
+    <div class="label">Total de Vendas</div>
+    <div class="value">${totalSales}</div>
+  </div>
+  <div class="stat-card">
+    <div class="label">Totens</div>
+    <div class="value">${clientTotems.length}</div>
+  </div>
+</div>
+
+${clientTotems.length > 1 ? `
+<h3 style="font-size:14px;font-weight:700;margin-bottom:12px;">Por Totem</h3>
+<div class="monitoring-grid" style="margin-bottom:24px;">${perTotemCards}</div>` : ''}
+
+<div class="section">
+  <h3>📋 Transações</h3>
+  <table>
+    <thead><tr><th>Totem</th><th>Data</th><th>Código</th><th>Itens</th><th>Valor</th><th>Status</th><th>Pagamento</th></tr></thead>
+    <tbody>${txRows}</tbody>
+  </table>
+</div>`;
 }
