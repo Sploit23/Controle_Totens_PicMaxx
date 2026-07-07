@@ -1,6 +1,6 @@
 const express = require('express');
 const crypto = require('crypto');
-const { getStats, getTransactions, getTotems,
+const { getTotems,
         getUsers, getAllLicenses, createLicense, updateLicense } = require('../database');
 
 function log(rid, msg, data) {
@@ -56,13 +56,11 @@ router.get('/logout', (req, res) => {
 });
 
 router.get('/', (req, res) => {
-  const stats = getStats();
-  const transactions = getTransactions(100);
   const totems = getTotems();
   const users = getUsers();
   const licenses = getAllLicenses();
   const licenseCreated = req.query.license === 'created';
-  res.send(dashboardPage({ stats, transactions, totems, users, licenses, licenseCreated }));
+  res.send(dashboardPage({ totems, users, licenses, licenseCreated }));
 });
 
 router.post('/license/create', (req, res) => {
@@ -112,37 +110,9 @@ input:focus { border-color:#302b63; }
 }
 
 function dashboardPage(data) {
-  const { stats, transactions, totems, users, licenses } = data;
+  const { totems, users, licenses } = data;
   const licenseCreated = data.licenseCreated || false;
   const licenseMsg = licenseCreated ? '<div class="msg-success">Licenca criada com sucesso!</div>' : '';
-
-  const txRows = transactions.map(t => {
-    let itemsHtml = '';
-    try {
-      const items = JSON.parse(t.items || '[]');
-      if (items.length) itemsHtml = items.map(i => `${i.type || i.size || ''} x${i.qty || i.quantity || 1}`).join(', ');
-    } catch {}
-    return `<tr>
-      <td class="cell-mono">#${t.id}</td>
-      <td class="cell-mono">${t.code_id || '-'}</td>
-      <td>${t.totem_id || '-'}</td>
-      <td><strong>R$ ${parseFloat(t.total_value).toFixed(2)}</strong></td>
-      <td><span class="badge ${t.payment_method === 'pix' ? 'badge-pix' : t.payment_method === 'test' ? 'badge-test' : 'badge-card'}">${paymentLabel(t.payment_method)}</span></td>
-      <td><span class="badge ${t.status === 'completed' ? 'badge-ok' : t.status === 'failed' ? 'badge-fail' : 'badge-warn'}">${t.status === 'failed' ? 'Recusado' : t.status}</span></td>
-      <td style="font-size:13px;color:#888">${itemsHtml}</td>
-      <td class="cell-mono" style="font-size:11px;color:#999">${t.local_id || '-'}</td>
-      <td style="font-size:13px;color:#999">${t.created_at?.replace('T', ' ').slice(0, 19) || t.created_at}</td>
-    </tr>`;
-  }).join('');
-
-  const codeRows = (stats.recentCodes || []).map(c => `<tr>
-    <td class="cell-mono"><strong>${c.id}</strong></td>
-    <td>${c.totem_id || '-'}</td>
-    <td>${c.photos}</td>
-    <td>${c.used ? '<span class="badge badge-ok">Sim</span>' : '<span class="badge badge-warn">Nao</span>'}</td>
-    <td style="font-size:13px;color:#999">${c.expires_at}</td>
-    <td style="font-size:13px;color:#999">${c.created_at}</td>
-  </tr>`).join('');
 
   return `<!DOCTYPE html>
 <html lang="pt-BR">
@@ -161,16 +131,6 @@ body { font-family: system-ui, -apple-system, sans-serif; background:#f0f2f5; co
 .btn-logout { padding:8px 18px; border:none; border-radius:10px; font-size:13px; font-weight:600; cursor:pointer; background:#fee2e2; color:#dc2626; transition:background .2s; text-decoration:none; }
 .btn-logout:hover { background:#fecaca; }
 .container { max-width:1400px; margin:0 auto; padding:24px 28px; }
-.cards { display:grid; grid-template-columns:repeat(auto-fit,minmax(190px,1fr)); gap:16px; margin-bottom:28px; }
-.card { background:#fff; border-radius:16px; padding:22px 24px; box-shadow:0 1px 4px rgba(0,0,0,.04); }
-.card .label { font-size:13px; color:#888; font-weight:500; margin-bottom:6px; text-transform:uppercase; letter-spacing:.3px; }
-.card .value { font-size:28px; font-weight:800; color:#1a1a2e; }
-.card .subval { font-size:14px; color:#666; margin-top:2px; }
-.card-gold { border-left:4px solid #f5a623; }
-.card-purple { border-left:4px solid #302b63; }
-.card-green { border-left:4px solid #059669; }
-.card-blue { border-left:4px solid #2563eb; }
-.card-red { border-left:4px solid #dc2626; }
 .section { background:#fff; border-radius:16px; padding:24px; margin-bottom:24px; box-shadow:0 1px 4px rgba(0,0,0,.04); }
 .section h2 { font-size:18px; font-weight:700; margin-bottom:16px; display:flex; align-items:center; gap:8px; }
 .section h2 .count { font-size:13px; font-weight:400; color:#888; }
@@ -181,16 +141,11 @@ td { padding:12px 14px; font-size:14px; border-bottom:1px solid #f5f5f5; }
 .badge { display:inline-block; padding:3px 10px; border-radius:20px; font-size:12px; font-weight:600; }
 .badge-ok { background:#ecfdf5; color:#059669; }
 .badge-warn { background:#fef3c7; color:#d97706; }
-.badge-pix { background:#e0f2fe; color:#0284c7; }
-.badge-card { background:#f3e8ff; color:#7c3aed; }
-.badge-test { background:#fef3c7; color:#d97706; }
 .badge-fail { background:#fef2f2; color:#dc2626; }
 .msg-success { background:#ecfdf5; color:#059669; padding:12px 16px; border-radius:10px; font-size:14px; font-weight:600; margin-bottom:16px; border-left:4px solid #059669; }
 .btn { padding:10px 24px; border:none; border-radius:10px; font-size:14px; font-weight:600; cursor:pointer; transition:all .2s; }
 .btn-primary { background:#302b63; color:#fff; }
 .btn-primary:hover { background:#24243e; }
-.link { color:#302b63; text-decoration:none; font-weight:600; font-size:13px; }
-.link:hover { text-decoration:underline; }
 .empty { text-align:center; padding:40px; color:#999; font-size:14px; }
 </style>
 </head>
@@ -205,32 +160,6 @@ td { padding:12px 14px; font-size:14px; border-bottom:1px solid #f5f5f5; }
 </div>
 
 <div class="container">
-  <div class="cards">
-    <div class="card card-gold">
-      <div class="label">Vendas</div>
-      <div class="value">${stats.totalSales.count}</div>
-      <div class="subval">R$ ${parseFloat(stats.totalSales.revenue).toFixed(2)}</div>
-    </div>
-    <div class="card card-green">
-      <div class="label">Hoje</div>
-      <div class="value">${stats.todaySales.count}</div>
-      <div class="subval">R$ ${parseFloat(stats.todaySales.revenue).toFixed(2)}</div>
-    </div>
-    <div class="card card-purple">
-      <div class="label">Codigos Ativos</div>
-      <div class="value">${stats.activeCodes.count}</div>
-    </div>
-    <div class="card card-blue">
-      <div class="label">Fotos</div>
-      <div class="value">${stats.totalPhotos.count}</div>
-    </div>
-    <div class="card card-red">
-      <div class="label">Recusadas</div>
-      <div class="value">${stats.failedCount.count}</div>
-      <div class="subval">${stats.testCount.count} teste (R$ ${parseFloat(stats.testCount.revenue).toFixed(2)})</div>
-    </div>
-  </div>
-
   <div class="section">
     <h2>Clientes <span class="count">(${users.length})</span></h2>
     <table>
@@ -285,21 +214,6 @@ td { padding:12px 14px; font-size:14px; border-bottom:1px solid #f5f5f5; }
     </div>
   </div>
 
-  <div class="section">
-    <h2>Codigos Recentes <span class="count">(${(stats.recentCodes || []).length})</span></h2>
-    <table>
-      <thead><tr><th>Codigo</th><th>Totem</th><th>Fotos</th><th>Usado</th><th>Expira</th><th>Criado</th></tr></thead>
-      <tbody>${codeRows || '<tr><td colspan="6" class="empty">Nenhum codigo</td></tr>'}</tbody>
-    </table>
-  </div>
-
-  <div class="section">
-    <h2>Transacoes <span class="count">(${transactions.length})</span></h2>
-    <table>
-      <thead><tr><th>#</th><th>Codigo</th><th>Totem</th><th>Valor</th><th>Metodo</th><th>Status</th><th>Itens</th><th>ID Local</th><th>Data</th></tr></thead>
-      <tbody>${txRows || '<tr><td colspan="9" class="empty">Nenhuma transacao</td></tr>'}</tbody>
-    </table>
-  </div>
 </div>
 </body>
 </html>`;
