@@ -1,6 +1,6 @@
 const express = require('express');
 const crypto = require('crypto');
-const { getStats, getTransactions, getTotems, getTotem, getAllPrices, setConfig, updateTotemName,
+const { getStats, getTransactions, getTotems,
         getUsers, getAllLicenses, createLicense, updateLicense } = require('../database');
 
 function log(rid, msg, data) {
@@ -56,36 +56,13 @@ router.get('/logout', (req, res) => {
 });
 
 router.get('/', (req, res) => {
-  const totemId = req.query.totem || null;
-  const stats = getStats(totemId);
-  const transactions = getTransactions(100, totemId);
+  const stats = getStats();
+  const transactions = getTransactions(100);
   const totems = getTotems();
-  const prices = getAllPrices(totemId);
-  const selectedTotem = totemId ? getTotem(totemId) : null;
-  const saved = req.query.saved === '1';
   const users = getUsers();
   const licenses = getAllLicenses();
   const licenseCreated = req.query.license === 'created';
-  res.send(dashboardPage({ stats, transactions, totems, prices, selectedTotem, totemId, saved, users, licenses, licenseCreated }));
-});
-
-router.post('/config', (req, res) => {
-  const { totemId, config: cfg, key, value } = req.body;
-  if (cfg && typeof cfg === 'object') {
-    for (const [k, v] of Object.entries(cfg)) {
-      if (v !== undefined && v !== '') setConfig(k, String(v), totemId || null);
-    }
-  } else if (key && value !== undefined) {
-    setConfig(key, String(value), totemId || null);
-  }
-  const qs = totemId ? `?totem=${totemId}&saved=1` : '?saved=1';
-  res.redirect(`/admin${qs}`);
-});
-
-router.post('/totem/rename', (req, res) => {
-  const { totemId, name } = req.body;
-  if (totemId && name) updateTotemName(totemId, name);
-  res.redirect(`/admin?totem=${totemId}`);
+  res.send(dashboardPage({ stats, transactions, totems, users, licenses, licenseCreated }));
 });
 
 router.post('/license/create', (req, res) => {
@@ -135,14 +112,9 @@ input:focus { border-color:#302b63; }
 }
 
 function dashboardPage(data) {
-  const { stats, transactions, totems, prices, selectedTotem, totemId, saved, users, licenses } = data;
+  const { stats, transactions, totems, users, licenses } = data;
   const licenseCreated = data.licenseCreated || false;
-  const savedMsg = saved ? '<div class="msg-success">Precos salvos com sucesso!</div>' : '';
   const licenseMsg = licenseCreated ? '<div class="msg-success">Licenca criada com sucesso!</div>' : '';
-
-  const totemOpts = totems.map(t =>
-    `<option value="${t.id}" ${t.id === totemId ? 'selected' : ''}>${t.name || t.id}</option>`
-  ).join('') + '<option value="">--- Todos ---</option>';
 
   const txRows = transactions.map(t => {
     let itemsHtml = '';
@@ -172,31 +144,12 @@ function dashboardPage(data) {
     <td style="font-size:13px;color:#999">${c.created_at}</td>
   </tr>`).join('');
 
-  const totemRows = totems.map(t => {
-    const tp = getAllPrices(t.id);
-    return `<tr>
-      <td class="cell-mono">${t.id}</td>
-      <td>
-        <form method="POST" action="/admin/totem/rename" class="inline-form">
-          <input name="totemId" value="${t.id}" hidden>
-          <input name="name" value="${t.name || ''}" class="inline-input">
-          <button class="btn-sm btn-ok">Salvar</button>
-        </form>
-      </td>
-      <td style="font-size:13px;color:#888">${t.last_seen || 'Nunca'}</td>
-      <td><a href="/admin?totem=${t.id}" class="link">Filtrar</a></td>
-      <td style="font-size:12px;color:#999">R$ ${tp.preco_10x15} / R$ ${tp.preco_15x20}<br><span style="color:#bbb;font-size:11px">atacado ${tp.preco_10x15_bulk} (${tp.preco_10x15_threshold}+) | ${tp.preco_15x20_bulk} (${tp.preco_15x20_threshold}+)</span></td>
-    </tr>`;
-  }).join('');
-
-  const selectedName = selectedTotem ? selectedTotem.name || selectedTotem.id : 'Global';
-
   return `<!DOCTYPE html>
 <html lang="pt-BR">
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Controle Maxx${selectedTotem ? ' - ' + selectedName : ''}</title>
+<title>Controle Maxx — Admin</title>
 <style>
 * { margin:0; padding:0; box-sizing:border-box; }
 body { font-family: system-ui, -apple-system, sans-serif; background:#f0f2f5; color:#1a1a2e; }
@@ -204,10 +157,7 @@ body { font-family: system-ui, -apple-system, sans-serif; background:#f0f2f5; co
 .topbar-left { display:flex; align-items:center; gap:16px; }
 .topbar h1 { font-size:20px; font-weight:800; letter-spacing:-.5px; }
 .topbar h1 span { color:#f5a623; }
-.topbar select { padding:8px 12px; border:2px solid #e0e0e0; border-radius:10px; font-size:14px; background:#fff; cursor:pointer; outline:none; }
-.topbar select:focus { border-color:#302b63; }
 .topbar-right { display:flex; align-items:center; gap:12px; }
-.badge-totem { background:#eef2ff; color:#4338ca; padding:4px 14px; border-radius:20px; font-size:13px; font-weight:600; }
 .btn-logout { padding:8px 18px; border:none; border-radius:10px; font-size:13px; font-weight:600; cursor:pointer; background:#fee2e2; color:#dc2626; transition:background .2s; text-decoration:none; }
 .btn-logout:hover { background:#fecaca; }
 .container { max-width:1400px; margin:0 auto; padding:24px 28px; }
@@ -236,22 +186,9 @@ td { padding:12px 14px; font-size:14px; border-bottom:1px solid #f5f5f5; }
 .badge-test { background:#fef3c7; color:#d97706; }
 .badge-fail { background:#fef2f2; color:#dc2626; }
 .msg-success { background:#ecfdf5; color:#059669; padding:12px 16px; border-radius:10px; font-size:14px; font-weight:600; margin-bottom:16px; border-left:4px solid #059669; }
-.pricing-grid { display:flex; gap:20px; align-items:start; flex-wrap:wrap; }
-.pricing-card { background:#f8f9fa; border-radius:14px; padding:20px; min-width:220px; border:1px solid #eee; flex:1; }
-.pricing-card h3 { font-size:15px; font-weight:700; margin:0 0 14px 0; color:#333; padding-bottom:10px; border-bottom:2px solid #e0e0e0; }
-.pricing-item { margin-bottom:12px; }
-.pricing-item label { display:block; font-size:11px; font-weight:600; color:#666; margin-bottom:3px; }
-.pricing-item input { padding:8px 12px; border:2px solid #e0e0e0; border-radius:8px; font-size:14px; width:110px; outline:none; }
-.pricing-item input:focus { border-color:#302b63; }
 .btn { padding:10px 24px; border:none; border-radius:10px; font-size:14px; font-weight:600; cursor:pointer; transition:all .2s; }
 .btn-primary { background:#302b63; color:#fff; }
 .btn-primary:hover { background:#24243e; }
-.btn-sm { padding:6px 14px; border:none; border-radius:8px; font-size:12px; font-weight:600; cursor:pointer; }
-.btn-ok { background:#059669; color:#fff; }
-.btn-ok:hover { background:#047857; }
-.inline-form { display:flex; gap:6px; align-items:center; }
-.inline-input { padding:6px 10px; border:2px solid #e0e0e0; border-radius:8px; font-size:13px; width:160px; outline:none; }
-.inline-input:focus { border-color:#302b63; }
 .link { color:#302b63; text-decoration:none; font-weight:600; font-size:13px; }
 .link:hover { text-decoration:underline; }
 .empty { text-align:center; padding:40px; color:#999; font-size:14px; }
@@ -261,10 +198,6 @@ td { padding:12px 14px; font-size:14px; border-bottom:1px solid #f5f5f5; }
 <div class="topbar">
   <div class="topbar-left">
     <h1>Controle <span>Maxx</span></h1>
-    <form method="GET" action="/admin">
-      <select name="totem" onchange="this.form.submit()">${totemOpts}</select>
-    </form>
-    ${selectedTotem ? `<span class="badge-totem">${selectedName}</span>` : ''}
   </div>
   <div class="topbar-right">
     <a href="/admin/logout" class="btn-logout">Sair</a>
@@ -296,56 +229,6 @@ td { padding:12px 14px; font-size:14px; border-bottom:1px solid #f5f5f5; }
       <div class="value">${stats.failedCount.count}</div>
       <div class="subval">${stats.testCount.count} teste (R$ ${parseFloat(stats.testCount.revenue).toFixed(2)})</div>
     </div>
-  </div>
-
-  <div class="section">
-    <h2>Precos — ${selectedName}</h2>
-    ${savedMsg}
-    ${totemId ? `<div style="margin-bottom:14px"><a href="/admin" class="link" style="font-size:13px">← Usar precos globais</a></div>` : ''}
-    <form method="POST" action="/admin/config">
-      <input name="totemId" value="${totemId || ''}" hidden>
-      <div class="pricing-grid">
-        <div class="pricing-card">
-          <h3>10x15</h3>
-          <div class="pricing-item">
-            <label>Preço unitário (R$)</label>
-            <input name="config[preco_10x15]" value="${prices.preco_10x15}" step="0.5">
-          </div>
-          <div class="pricing-item">
-            <label>Preço atacado (R$)</label>
-            <input name="config[preco_10x15_bulk]" value="${prices.preco_10x15_bulk}" step="0.5">
-          </div>
-          <div class="pricing-item">
-            <label>Qtd mínima para atacado</label>
-            <input name="config[preco_10x15_threshold]" value="${prices.preco_10x15_threshold}" type="number" min="1">
-          </div>
-        </div>
-        <div class="pricing-card">
-          <h3>15x20</h3>
-          <div class="pricing-item">
-            <label>Preço unitário (R$)</label>
-            <input name="config[preco_15x20]" value="${prices.preco_15x20}" step="0.5">
-          </div>
-          <div class="pricing-item">
-            <label>Preço atacado (R$)</label>
-            <input name="config[preco_15x20_bulk]" value="${prices.preco_15x20_bulk}" step="0.5">
-          </div>
-          <div class="pricing-item">
-            <label>Qtd mínima para atacado</label>
-            <input name="config[preco_15x20_threshold]" value="${prices.preco_15x20_threshold}" type="number" min="1">
-          </div>
-        </div>
-      </div>
-      <button class="btn btn-primary" style="margin-top:16px">Salvar Todos os Precos</button>
-    </form>
-  </div>
-
-  <div class="section">
-    <h2>Totens <span class="count">(${totems.length})</span></h2>
-    <table>
-      <thead><tr><th>ID</th><th>Nome</th><th>Ultimo Contato</th><th></th><th>Precos (10x15 / 15x20)</th></tr></thead>
-      <tbody>${totemRows || '<tr><td colspan="5" class="empty">Nenhum totem registrado</td></tr>'}</tbody>
-    </table>
   </div>
 
   <div class="section">
