@@ -130,4 +130,8 @@ router.post('/transaction-failed', (req, res) => {
   }
 });
 
+router.get('/ping', (req, res) => {
+  res.json({ ok: true, time: Date.now() });
+});
+
 module.exports = router;
