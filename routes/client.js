@@ -885,130 +885,217 @@ ${clientTotems.length > 1 ? `
 }
 
 // ══════════════════════════════════════════════════════════
-//  LIVE (dashboard estilo Python — dark theme, ao vivo)
+//  LIVE — igual ao `Servidor_antigo_Para_Integrar/public/`
 // ══════════════════════════════════════════════════════════
 function livePage(user, clientTotems) {
   const totemIds = clientTotems.map(t => t.id);
   const telemetry = getLatestTelemetryForTotems(totemIds);
-
-  function paperStatus(v) {
-    const n = parseInt(v) || 0;
-    if (n > 20) return '<span class="paper-good">✔ Suficiente</span>';
-    if (n > 10) return '<span class="paper-warning">⚠ Atenção</span>';
-    if (n > 0) return '<span class="paper-warning">⚠ Pouco papel</span>';
-    return '<span class="paper-critical">✖ Sem papel</span>';
-  }
-
-  let warnings = 0, criticals = 0;
-  const initialCards = clientTotems.map(t => {
+  // monta totemData no formato que o JS antigo espera
+  const totemData = {};
+  for (const t of clientTotems) {
     const tel = telemetry[t.id] || {};
-    const p10 = tel.paper_10x15 || '0';
-    const p20 = tel.paper_15x20 || '0';
-    const pn10 = parseInt(p10) || 0;
-    const pn20 = parseInt(p20) || 0;
-    if (pn10 === 0 || pn20 === 0) criticals++;
-    else if (pn10 < 10 || pn20 < 10) warnings++;
-    const timeStr = tel.created_at ? new Date(tel.created_at+'Z').toLocaleString('pt-BR') : '—';
-    return `<div class="totem-card" id="tc-${t.id}">
-      <div class="totem-id">${t.name || t.id}</div>
-      <div class="resource-stats">
-        <div class="resource-stat"><div>Papel 10x15</div><div class="stat-value paper-value" data-stat="p10">${p10}</div><div class="paper-indicator" data-stat="p10i">${paperStatus(p10)}</div></div>
-        <div class="resource-stat"><div>Papel 15x20</div><div class="stat-value paper-value" data-stat="p20">${p20}</div><div class="paper-indicator" data-stat="p20i">${paperStatus(p20)}</div></div>
-      </div>
-      <div class="screenshot-container" id="scr-${t.id}"><div style="color:#666;font-size:.85rem;text-align:center;padding:20px;">Carregando...</div></div>
-      <div class="timestamp">🕐 ${timeStr}</div>
-    </div>`;
-  }).join('');
+    const scr = getLatestScreenshot(t.id);
+    totemData[t.id] = {
+      id: t.id,
+      cpu: tel.cpu || '0',
+      ram: tel.ram || '0',
+      paper_10x15: tel.paper_10x15 || '0',
+      paper_15x20: tel.paper_15x20 || '0',
+      printer_error: tel.printer_error || 'N/A',
+      printer_name: tel.printer_name || 'N/A',
+      screenshot: scr ? scr.screenshot : '',
+      time: tel.created_at ? tel.created_at + 'Z' : new Date().toISOString()
+    };
+  }
+  const initialDataJson = JSON.stringify(totemData).replace(/<\//g, '<\\/');
+  const idsJson = JSON.stringify(totemIds);
 
   return `<style>
-:root{
-  --bg-primary:#0f0f13;--bg-secondary:#1a1a24;--bg-tertiary:#252535;
-  --text-primary:#f0f0ff;--text-secondary:#c0c0e0;
-  --accent-primary:#6c5ce7;--accent-secondary:#8175ff;
-  --accent-gradient:linear-gradient(135deg,#6c5ce7,#8175ff);
-  --success:#00e676;--warning:#ffaa00;--danger:#ff3d71;
-  --border-color:#3a3a4a;--shadow-color:rgba(0,0,0,.6);
-  --card-shadow:0 8px 24px rgba(0,0,0,.3);
-  --glass-effect:rgba(30,30,45,.5);--glass-border:1px solid rgba(255,255,255,.1);--glass-blur:blur(12px);
-}
-.live-wrapper{max-width:1400px;margin:0 auto;width:100%;}
-.live-head{display:flex;justify-content:space-between;align-items:center;margin-bottom:1.5rem;padding:1rem 2rem;background:var(--glass-effect);backdrop-filter:var(--glass-blur);border-radius:12px;border:var(--glass-border);box-shadow:0 4px 30px var(--shadow-color);}
-.live-head .logo{display:flex;align-items:center;gap:.75rem;background:var(--accent-gradient);-webkit-background-clip:text;background-clip:text;color:transparent;font-size:1.3rem;font-weight:700;}
-.live-head .sys-status{display:flex;gap:1rem;}
-.live-head .status-pill{background:var(--glass-effect);backdrop-filter:var(--glass-blur);border-radius:50px;padding:.3rem 1rem;font-size:.85rem;font-weight:500;border:var(--glass-border);display:flex;align-items:center;gap:.5rem;color:var(--text-primary);}
-.live-head .status-pill.warning{color:var(--warning);background:rgba(255,170,0,.15);}
-.live-head .status-pill.critical{color:var(--danger);background:rgba(255,61,113,.15);}
-.grid-view{display:grid;grid-template-columns:repeat(auto-fill,minmax(280px,1fr));gap:1.5rem;margin-bottom:1.5rem;animation:fadeIn .8s ease-out;}
-@keyframes fadeIn{from{opacity:0;transform:translateY(20px);}to{opacity:1;transform:translateY(0);}}
-.totem-card{background:var(--glass-effect);backdrop-filter:var(--glass-blur);border-radius:12px;border:var(--glass-border);box-shadow:var(--card-shadow);overflow:hidden;display:flex;flex-direction:column;height:500px;transition:all .4s cubic-bezier(.25,.8,.25,1);}
-.totem-card:hover{transform:translateY(-4px);box-shadow:0 12px 40px rgba(0,0,0,.5);}
-.totem-id{font-size:1.2rem;font-weight:700;text-align:center;padding:.8rem 0;background:rgba(0,0,0,.2);color:var(--text-primary);}
-.resource-stats{display:flex;justify-content:space-around;padding:.8rem;background:rgba(0,0,0,.1);}
-.resource-stat{text-align:center;padding:.5rem;}
-.resource-stat>div:first-child{font-size:.9rem;margin-bottom:.3rem;color:var(--text-secondary);}
-.stat-value{font-size:1.1rem;font-weight:600;color:var(--text-primary);}
-.paper-indicator{font-size:.8rem;margin-top:.25rem;}
-.paper-good{color:var(--success);}.paper-warning{color:var(--warning);}.paper-critical{color:var(--danger);}
-.screenshot-container{flex-grow:1;display:flex;justify-content:center;align-items:center;background:#000;overflow:hidden;}
-.screenshot-container img{width:auto;height:100%;object-fit:contain;}
-.timestamp{text-align:center;padding:.5rem;font-size:.8rem;color:var(--text-secondary);}
-.live-foot{text-align:center;padding:1rem;border-top:var(--glass-border);color:var(--text-secondary);font-size:.85rem;background:var(--glass-effect);backdrop-filter:var(--glass-blur);border-radius:12px;}
-.live-foot .status-dot{width:8px;height:8px;border-radius:50%;display:inline-block;}
-.live-foot .status-dot.online{background-color:var(--success);}
-.live-foot .status-dot.offline{background-color:var(--danger);}
+*{margin:0;padding:0;box-sizing:border-box}
+:root{--bg-primary:#0f0f13;--bg-secondary:#1a1a24;--bg-tertiary:#252535;--text-primary:#f0f0ff;--text-secondary:#c0c0e0;--accent-primary:#6c5ce7;--accent-secondary:#8175ff;--accent-gradient:linear-gradient(135deg,var(--accent-primary),var(--accent-secondary));--success:#00e676;--warning:#ffaa00;--danger:#ff3d71;--border-color:#3a3a4a;--shadow-color:rgba(0,0,0,.6);--card-shadow:0 8px 24px rgba(0,0,0,.3);--transition-speed:.3s;--glass-effect:rgba(30,30,45,.5);--glass-border:1px solid rgba(255,255,255,.1);--glass-blur:blur(12px)}
+body{font-family:'Inter',-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;background-color:var(--bg-primary);color:var(--text-primary);line-height:1.6;background-image:radial-gradient(circle at 25% 25%,rgba(108,92,231,0.15) 0%,transparent 50%),radial-gradient(circle at 75% 75%,rgba(255,61,113,0.1) 0%,transparent 50%);background-attachment:fixed}
+.app-container{display:flex;flex-direction:column;min-height:100vh}
+.main-header{background:var(--glass-effect);backdrop-filter:var(--glass-blur);padding:1rem 2rem;border-bottom:var(--glass-border);box-shadow:0 4px 30px var(--shadow-color);position:sticky;top:0;z-index:100}
+.header-content{display:flex;justify-content:space-between;align-items:center;max-width:1400px;margin:0 auto;width:100%;gap:1rem}
+.logo{display:flex;align-items:center;gap:.75rem;background:var(--accent-gradient);-webkit-background-clip:text;background-clip:text;color:transparent;text-shadow:0 2px 10px rgba(108,92,231,.3)}
+.logo i{font-size:1.8rem}
+.logo h1{font-size:1.6rem;font-weight:700;letter-spacing:-.5px}
+.system-status{display:flex;gap:1rem;align-items:center}
+.status-pill{background:var(--glass-effect);backdrop-filter:var(--glass-blur);border-radius:50px;padding:.5rem 1.2rem;font-size:.85rem;font-weight:500;border:var(--glass-border);display:flex;align-items:center;gap:.5rem;transition:var(--transition-speed)}
+.status-pill:hover{transform:translateY(-2px);box-shadow:0 4px 12px rgba(0,0,0,.2)}
+#warning-status{color:var(--warning);background:rgba(255,170,0,.15)}
+#critical-status{color:var(--danger);background:rgba(255,61,113,.15)}
+.visualizacao-group{display:flex;align-items:center;gap:.5rem;background:var(--glass-effect);backdrop-filter:var(--glass-blur);border-radius:50px;padding:.5rem 1rem;border:var(--glass-border)}
+.visualizacao-label{font-size:.85rem;font-weight:500;color:var(--text-secondary)}
+.visualizacao-group .view-option{background:transparent;border:1px solid rgba(255,255,255,.2);color:var(--text-secondary);border-radius:50px;padding:.3rem .8rem;font-size:.8rem;cursor:pointer;transition:var(--transition-speed);font-weight:500}
+.visualizacao-group .view-option.active{background:var(--accent-gradient);border-color:var(--accent-primary);color:#fff}
+.visualizacao-group .view-option:hover{border-color:var(--accent-primary);color:var(--text-primary)}
+.filtro-periodo-group,.total-vendas-group{display:none}
+main{flex:1;padding:2rem;max-width:1400px;margin:0 auto;width:100%}
+.grid-view{display:grid;grid-template-columns:repeat(auto-fill,minmax(350px,1fr));gap:1.5rem;width:100%;max-width:2000px;margin:0 auto;padding:0 .5rem 1.5rem .5rem;box-sizing:border-box;justify-content:center;align-items:flex-start}
+.totem-card{background:var(--bg-secondary);border-radius:12px;overflow:hidden;box-shadow:var(--card-shadow);border:var(--glass-border);transition:all var(--transition-speed);display:flex;flex-direction:column;height:500px;position:relative}
+.totem-card:hover{transform:translateY(-5px);box-shadow:0 12px 28px rgba(0,0,0,.4)}
+.totem-id{position:absolute;top:0;left:0;right:0;font-size:1.2rem;font-weight:700;color:#fff;padding:.8rem;background:rgba(0,0,0,.7);backdrop-filter:blur(5px);text-align:center;z-index:10;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;border-radius:12px 12px 0 0}
+.totem-content{display:flex;flex-direction:row;width:100%;min-width:0;gap:0;flex:1}
+.resource-info{display:flex;flex-direction:column;flex:0 0 110px;min-width:0;max-width:120px;width:100%}
+.screenshot-container{flex:1;min-width:0;width:100%;display:flex;align-items:center;justify-content:center;background:#000}
+.screenshot-container img{width:100%;height:auto;max-width:100%;object-fit:contain;border-radius:.2rem}
+.totem-card:hover .screenshot-container img{transform:scale(1.03)}
+.timestamp{position:absolute;bottom:0;left:0;right:0;text-align:center;font-size:.7rem;color:var(--text-secondary);padding:.5rem;background:rgba(0,0,0,.5);z-index:5}
+.resource-stats{display:flex;flex-direction:column;gap:.8rem}
+.resource-stat{padding:.6rem;border-radius:6px;margin-bottom:.8rem;transition:var(--transition-speed);background:rgba(15,15,19,.6)}
+.stat-label{font-size:.75rem;color:var(--text-secondary);margin-bottom:.2rem}
+.stat-value{font-size:1.1rem;font-weight:600}
+.cpu-stat.normal{border-left:3px solid var(--accent-primary)}
+.cpu-stat.warning{border-left:3px solid var(--warning);background:rgba(255,170,0,.1)}
+.cpu-stat.critical{border-left:3px solid var(--danger);background:rgba(255,61,113,.1)}
+.paper-stat.high{border-left:3px solid var(--success);background:rgba(0,230,118,.1)}
+.paper-stat.medium{border-left:3px solid var(--warning);background:rgba(255,170,0,.1)}
+.paper-stat.low{border-left:3px solid var(--warning);background:rgba(255,170,0,.2)}
+.paper-stat.critical{background:rgba(255,61,113,.3)!important;border:1px solid var(--danger)!important;color:#fff!important;animation:pulseWarning 2s infinite}
+.paper-stat.critical .stat-value{color:#fff!important;font-weight:700}
+.paper-stat.critical .paper-indicator{display:none}
+@keyframes pulseWarning{0%{opacity:1}50%{opacity:.8}100%{opacity:1}}
+footer{text-align:center;padding:1rem;border-top:var(--glass-border);color:var(--text-secondary);font-size:.85rem;background:var(--glass-effect);backdrop-filter:var(--glass-blur)}
+#server-status{display:inline-flex;align-items:center;gap:.5rem}
+.status-dot{width:8px;height:8px;border-radius:50%;display:inline-block}
+.status-dot.online{background-color:var(--success);box-shadow:0 0 8px var(--success)}
+.status-dot.offline{background-color:var(--danger);box-shadow:0 0 8px var(--danger)}
+.totem-status-badge{position:absolute;bottom:10px;right:10px;padding:.4rem .9rem;font-weight:700;border-radius:20px;font-size:.8rem;z-index:15;color:#fff;text-shadow:0 1px 2px rgba(0,0,0,.8);border:2px solid rgba(255,255,255,.2);backdrop-filter:blur(4px);transition:all .3s ease;text-transform:uppercase;letter-spacing:.5px;min-width:70px;text-align:center}
+.totem-status-badge.online{background:linear-gradient(135deg,#00e676,#00c853);box-shadow:0 4px 15px rgba(0,230,118,.4),0 0 20px rgba(0,230,118,.2);animation:subtleGlow 3s ease-in-out infinite}
+.totem-status-badge.offline{background:linear-gradient(135deg,#ff1744,#d50000);box-shadow:0 4px 15px rgba(255,23,68,.6),0 0 25px rgba(255,23,68,.3);animation:pulseOfflineIntense 1.2s infinite}
+@keyframes subtleGlow{0%,100%{box-shadow:0 4px 15px rgba(0,230,118,.4),0 0 20px rgba(0,230,118,.2)}50%{box-shadow:0 4px 20px rgba(0,230,118,.6),0 0 30px rgba(0,230,118,.4)}}
+@keyframes pulseOfflineIntense{0%,100%{transform:scale(1);box-shadow:0 4px 15px rgba(255,23,68,.6),0 0 25px rgba(255,23,68,.3)}50%{transform:scale(1.08);box-shadow:0 6px 25px rgba(255,23,68,.8),0 0 40px rgba(255,23,68,.5)}}
+.totem-status-badge:hover{transform:scale(1.05);cursor:pointer}
+.totem-status-badge.online::before{content:"\\25CF ";font-size:.6rem;margin-right:.2rem}
+.totem-status-badge.offline::before{content:"\\26A0 ";font-size:.7rem;margin-right:.2rem}
+#no-results{text-align:center;padding:3rem;color:var(--text-secondary)}
+.hidden{display:none!important}
+@media(max-width:768px){.header-content{flex-direction:column;gap:1rem}.system-status{width:100%;justify-content:center;flex-wrap:wrap}.grid-view{grid-template-columns:repeat(auto-fill,minmax(300px,1fr))}}
+@media(max-width:480px){.grid-view{grid-template-columns:1fr}}
 </style>
-<div class="live-wrapper">
-  <div class="live-head">
-    <div class="logo">🖥️ Monitor de Totens</div>
-    <div class="sys-status">
-      <span class="status-pill"><span id="tot-count">${clientTotems.length}</span> Totens</span>
-      <span class="status-pill warning" id="warn-pill" style="display:${warnings > 0 ? '' : 'none'}"><span id="warn-count">${warnings}</span> Alertas</span>
-      <span class="status-pill critical" id="crit-pill" style="display:${criticals > 0 ? '' : 'none'}"><span id="crit-count">${criticals}</span> Críticos</span>
+<div class="app-container">
+  <header class="main-header">
+    <div class="header-content">
+      <div class="logo">
+        <i class="fas fa-desktop"></i>
+        <h1>Monitor de Totens</h1>
+      </div>
+      <div class="system-status">
+        <div class="status-pill"><span id="total-count">0</span> Totens</div>
+        <div class="status-pill" id="warning-status" style="display:none"><span id="warning-count">0</span> Alertas</div>
+        <div class="status-pill" id="critical-status" style="display:none"><span id="critical-count">0</span> Críticos</div>
+      </div>
     </div>
-  </div>
-  <div id="totems-container" class="grid-view">${initialCards}</div>
-  <div class="live-foot">Painel de Monitoramento \u00a9 2025 | <span id="srv-status">Servidor: <span class="status-dot online"></span> Online</span></div>
+  </header>
+  <main>
+    <div id="totems-container" class="grid-view"></div>
+    <div id="no-results" class="hidden">
+      <i class="fas fa-search"></i>
+      <p>Nenhum totem encontrado</p>
+    </div>
+  </main>
+  <footer>
+    <p>Painel de Monitoramento de Totens \u00a9 2025 | 
+       <span id="server-status">Servidor: <span class="status-dot online"></span> Online</span>
+    </p>
+  </footer>
 </div>
 <script>
-(function(){
-var TOTEM_IDS = ${JSON.stringify(totemIds)};
-function paperStatus(v){var n=parseInt(v)||0;if(n>20)return'<span class=\\"paper-good\\">\✔ Suficiente</span>';if(n>10)return'<span class=\\"paper-warning\\">⚠ Atenção</span>';if(n>0)return'<span class=\\"paper-warning\\">⚠ Pouco papel</span>';return'<span class=\\"paper-critical\\">\✖ Sem papel</span>';}
-async function refresh(){
+var TOTEM_IDS = ${idsJson};
+var PAPER_HIGH = 100, PAPER_MEDIUM = 70, PAPER_LOW = 30;
+var OFFLINE_TIMEOUT = 30;
+var totemData = {};
+var totalCount = document.getElementById('total-count');
+var warningCount = document.getElementById('warning-count');
+var criticalCount = document.getElementById('critical-count');
+var serverStatus = document.getElementById('server-status');
+var connectedTotems = new Set();
+
+function getPaperLevel(count){var n=parseInt(count)||0;if(n===0)return'critical';if(n<=PAPER_LOW)return'low';if(n<=PAPER_MEDIUM)return'medium';return'high'}
+function getPaperStatus(count){var n=parseInt(count)||0;if(n===0)return'Vazio';if(n<=PAPER_LOW)return'Baixo';if(n<=PAPER_MEDIUM)return'M\u00e9dio';return'Alto'}
+function getResourceStatus(value){var n=parseInt(value)||0;if(n>=90)return'critical';if(n>=70)return'warning';return'normal'}
+
+function renderFullTotem(id){
+  var data=totemData[id];if(!data)return;
+  var now=Date.now(),last=new Date(data.time).getTime(),diff=(now-last)/1000;
+  var paperEmpty=(parseInt(data.paper_10x15)===0||parseInt(data.paper_15x20)===0);
+  var offline=diff>OFFLINE_TIMEOUT||paperEmpty;
+  var sc=offline?'offline':'online',st=offline?'OFFLINE':'ONLINE';
+  var p10l=getPaperLevel(data.paper_10x15),p20l=getPaperLevel(data.paper_15x20),cs=getResourceStatus(data.cpu);
+  var card=document.createElement('div');card.id='totem-'+id;
+  card.className='totem-card full-totem-card card-full-'+sc;
+  card.innerHTML='<div class="full-totem-header header-status-'+sc+'"><span class="full-totem-title">'+id+'</span></div>'+
+    '<div class="totem-content">'+
+      '<div class="resource-info"><div class="resource-stats">'+
+        '<div class="resource-stat cpu-stat '+cs+'"><div class="stat-label">CPU</div><div class="stat-value">'+data.cpu+'%</div></div>'+
+        '<div class="resource-stat paper-stat '+p10l+'"><div class="stat-label">Papel 10x15</div><div class="stat-value">'+(data.paper_10x15||'0')+'</div><div class="paper-indicator">'+getPaperStatus(data.paper_10x15)+'</div></div>'+
+        '<div class="resource-stat paper-stat '+p20l+'"><div class="stat-label">Papel 15x20</div><div class="stat-value">'+(data.paper_15x20||'0')+'</div><div class="paper-indicator">'+getPaperStatus(data.paper_15x20)+'</div></div>'+
+      '</div><div class="timestamp">Atualizado: '+new Date(data.time).toLocaleTimeString('pt-BR')+'</div></div>'+
+      '<div class="screenshot-container"><img src="data:image/jpeg;base64,'+data.screenshot+'" alt="Tela do totem" onerror="this.parentElement.innerHTML=\'<div style=color:#666;font-size:.85rem;padding:20px;>Sem screenshot</div>\'"></div>'+
+    '</div>';
+  var old=document.getElementById('totem-'+id);if(old)old.replaceWith(card);else document.getElementById('totems-container').appendChild(card);
+}
+
+function updateStatusCounts(){
+  var total=0,warnings=0,criticals=0,now=Date.now();
+  for(var k in totemData){
+    total++;
+    var last=new Date(totemData[k].time).getTime(),diff=(now-last)/1000;
+    var paperEmpty=(parseInt(totemData[k].paper_10x15)===0||parseInt(totemData[k].paper_15x20)===0);
+    if(diff>OFFLINE_TIMEOUT||paperEmpty) criticals++;
+    else if(parseInt(totemData[k].cpu)>=70||parseInt(totemData[k].paper_10x15)<=PAPER_LOW||parseInt(totemData[k].paper_15x20)<=PAPER_LOW) warnings++;
+  }
+  totalCount.textContent=total;
+  warningCount.textContent=warnings;
+  criticalCount.textContent=criticals;
+  document.getElementById('warning-status').style.display=warnings>0?'':'none';
+  document.getElementById('critical-status').style.display=criticals>0?'':'none';
+}
+
+function updateServerStatus(online){
+  var d=serverStatus.querySelector('.status-dot');
+  d.className='status-dot '+(online?'online':'offline');
+}
+
+function updateTotemCard(id){renderFullTotem(id)}
+
+function initData(data){
+  for(var k in data){totemData[k]=data[k]}
+  for(var k in totemData){renderFullTotem(k)}
+  updateStatusCounts();
+  updateServerStatus(true);
+}
+
+var initialData = ${initialDataJson};
+initData(initialData);
+
+async function poll(){
   try{
     var ids=TOTEM_IDS.map(function(id){return encodeURIComponent(id)}).join(',');
     var res=await fetch('/api/totem/telemetry?ids='+ids);
-    var data=await res.json();
-    if(!data.success) return;
-    var warnings=0,criticals=0;
+    var json=await res.json();
+    if(!json.success) return;
+    var changed=false;
     for(var i=0;i<TOTEM_IDS.length;i++){
       var id=TOTEM_IDS[i];
-      var tel=data.telemetry[id]||{};
-      var p10=tel.paper_10x15||'0';
-      var p20=tel.paper_15x20||'0';
-      var pn10=parseInt(p10)||0;
-      var pn20=parseInt(p20)||0;
-      if(pn10===0||pn20===0) criticals++; else if(pn10<10||pn20<10) warnings++;
-      var timeStr=tel.created_at?new Date(tel.created_at+'Z').toLocaleString('pt-BR'):'\u2014';
-      var card=document.getElementById('tc-'+id);
-      if(card){
-        card.querySelector('[data-stat="p10"]').textContent=p10;
-        card.querySelector('[data-stat="p20"]').textContent=p20;
-        card.querySelector('[data-stat="p10i"]').innerHTML=paperStatus(p10);
-        card.querySelector('[data-stat="p20i"]').innerHTML=paperStatus(p20);
-        card.querySelector('.timestamp').textContent='\uD83D\uDD50 '+timeStr;
-      }
-      var scrDiv=document.getElementById('scr-'+id);
-      if(scrDiv&&data.screenshots[id]){
-        scrDiv.innerHTML='<img src="data:image/jpeg;base64,'+data.screenshots[id]+'" alt="Screen" onerror="this.parentElement.innerHTML=\'<div style=color:#666;font-size:.85rem;text-align:center;padding:20px;>Erro</div>\'">';
+      if(json.telemetry[id]){
+        var t=json.telemetry[id];
+        totemData[id].cpu=t.cpu||'0';
+        totemData[id].ram=t.ram||'0';
+        totemData[id].paper_10x15=t.paper_10x15||'0';
+        totemData[id].paper_15x20=t.paper_15x20||'0';
+        totemData[id].printer_error=t.printer_error||'N/A';
+        totemData[id].time=t.created_at?t.created_at+'Z':new Date().toISOString();
+        if(json.screenshots[id]){totemData[id].screenshot=json.screenshots[id]}
+        updateTotemCard(id);
+        changed=true;
       }
     }
-    document.getElementById('tot-count').textContent=TOTEM_IDS.length;
-    var wp=document.getElementById('warn-pill');if(wp){wp.style.display=warnings>0?'':'none';document.getElementById('warn-count').textContent=warnings;}
-    var cp=document.getElementById('crit-pill');if(cp){cp.style.display=criticals>0?'':'none';document.getElementById('crit-count').textContent=criticals;}
-  }catch(e){console.error('[Ao Vivo]',e);}
+    if(changed){updateStatusCounts();updateServerStatus(true)}
+  }catch(e){console.error('[Ao Vivo]',e);updateServerStatus(false)}
 }
-refresh();
-setInterval(refresh,10000);
-})();
+
+setInterval(poll,10000);
 <\/script>`;
 }
