@@ -7,7 +7,6 @@ const { getUserByEmail, getUserById, getUsers, createUser, updateUser,
         createLicense, getLicensesByUser, getLicenseByToken, getAllLicenses, updateLicense,
         getLicenseByTotemId,
         hashPassword, verifyPassword, updateTotemName,
-        getLatestTelemetry, getLatestScreenshot,
         getLatestTelemetryForTotems } = require('../database');
 const { notifyTotem, notifyUserTotems } = require('../ws-manager');
 
@@ -94,17 +93,15 @@ router.get('/', (req, res) => {
   } else if (page === 'monitoring') {
     pageTitle = 'Monitoramento';
     const stats = {};
-    const telemetry = {};
     let allTxs = [];
     for (const t of clientTotems) {
       const s = getStats(t.id);
       stats[t.id] = s;
-      telemetry[t.id] = getLatestTelemetry(t.id);
       allTxs.push(...getTransactions(100, t.id));
     }
     allTxs.sort((a, b) => b.created_at.localeCompare(a.created_at));
     allTxs.splice(100);
-    pageContent = monitoringPage(user, clientTotems, stats, telemetry, allTxs);
+    pageContent = monitoringPage(user, clientTotems, stats, allTxs);
   } else if (page === 'live') {
     pageTitle = '📡 Ao Vivo';
     pageContent = livePage(user, clientTotems);
@@ -807,7 +804,7 @@ document.getElementById('settingsForm').onsubmit = async function(e) {
 }
 
 // ─── MONITORING ────────────────────────────────────────
-function monitoringPage(user, clientTotems, stats, telemetry, allTxs) {
+function monitoringPage(user, clientTotems, stats, allTxs) {
   const methodLabels = { pix:'PIX', credit:'Crédito', debit:'Débito', test:'Teste', money:'Dinheiro', unknown:'—' };
 
   // Aggregate totals
@@ -833,65 +830,6 @@ function monitoringPage(user, clientTotems, stats, telemetry, allTxs) {
         <div><span style="font-size:11px;color:#999;">Hoje</span><br><span style="font-weight:700;font-size:15px;">${s.todaySales?.count || 0}</span></div>
         <div><span style="font-size:11px;color:#999;">Total</span><br><span style="font-weight:700;font-size:15px;">${s.totalSales?.count || 0}</span></div>
         <div><span style="font-size:11px;color:#999;">Falhas</span><br><span style="font-weight:700;font-size:15px;color:#ef4444;">${s.failedCount?.count || 0}</span></div>
-      </div>
-    </div>`;
-  }).join('');
-
-  // ─── Telemetry cards (ao vivo) ───────────────────────
-  function statusColor(val) {
-    const n = parseFloat(val) || 0;
-    return n >= 90 ? '#ef4444' : n >= 70 ? '#f59e0b' : '#22c55e';
-  }
-  function paperStatus(val) {
-    const n = parseInt(val) || 0;
-    return n > 20 ? '✅' : n > 10 ? '⚠️' : n > 0 ? '🔴' : '⛔';
-  }
-
-  const telCards = clientTotems.map(t => {
-    const tel = telemetry[t.id] || {};
-    const online = t.last_seen && (Date.now() - new Date(t.last_seen+'Z').getTime()) < 180000;
-    const cpu = tel.cpu || '0';
-    const ram = tel.ram || '0';
-    const p10 = tel.paper_10x15 || '0';
-    const p20 = tel.paper_15x20 || '0';
-    const err = tel.printer_error || '';
-    const cpuColor = statusColor(cpu);
-    const ramColor = statusColor(ram);
-    const timeStr = tel.created_at ? new Date(tel.created_at+'Z').toLocaleString('pt-BR') : '—';
-    const errDisplay = err && err !== 'Sem erros' && err !== 'N/A' ? `⚠️ ${err}` : '✅ OK';
-
-    return `<div class="tel-card" id="tel-${t.id}" data-totem="${t.id}">
-      <div class="tel-header">
-        <div class="tel-name">${t.name || t.id}</div>
-        <span class="tel-dot" style="background:${online?'#22c55e':'#ef4444'}"></span>
-        <span class="tel-online">${online?'Online':'Offline'}</span>
-      </div>
-      <div class="tel-body">
-        <div class="tel-screenshot" id="scr-${t.id}">
-          <div class="tel-noimg">Carregando...</div>
-        </div>
-        <div class="tel-info">
-          <div class="tel-gauges">
-            <div class="tel-gauge">
-              <span class="tel-glabel">CPU</span>
-              <div class="tel-bar"><div class="tel-fill" style="width:${Math.min(parseFloat(cpu),100)}%;background:${cpuColor}"></div></div>
-              <span class="tel-gvalue" id="cpu-${t.id}">${cpu}%</span>
-            </div>
-            <div class="tel-gauge">
-              <span class="tel-glabel">RAM</span>
-              <div class="tel-bar"><div class="tel-fill" style="width:${Math.min(parseFloat(ram),100)}%;background:${ramColor}"></div></div>
-              <span class="tel-gvalue" id="ram-${t.id}">${ram}%</span>
-            </div>
-          </div>
-          <div class="tel-paper">
-            <span>📄 10×15: <strong id="p10-${t.id}">${p10}</strong> ${paperStatus(p10)}</span>
-            <span>15×20: <strong id="p20-${t.id}">${p20}</strong> ${paperStatus(p20)}</span>
-          </div>
-          <div class="tel-footer">
-            <span class="tel-err" id="err-${t.id}">${errDisplay}</span>
-            <span class="tel-time" id="time-${t.id}">🕐 ${timeStr}</span>
-          </div>
-        </div>
       </div>
     </div>`;
   }).join('');
@@ -935,13 +873,6 @@ ${clientTotems.length > 1 ? `
 <h3 style="font-size:14px;font-weight:700;margin-bottom:12px;">Por Totem</h3>
 <div class="monitoring-grid" style="margin-bottom:24px;">${perTotemCards}</div>` : ''}
 
-<h3 style="font-size:14px;font-weight:700;margin-bottom:12px;margin-top:24px;">📡 Ao Vivo</h3>
-<div id="telemetry-container" class="tel-grid">${telCards}</div>
-<div style="text-align:center;margin:12px 0;">
-  <button onclick="loadAllScreenshots()" style="padding:8px 20px;background:#d8232a;color:#fff;border:none;border-radius:8px;cursor:pointer;font-size:13px;font-weight:600;">Carregar Screenshots</button>
-  <span style="font-size:12px;color:#888;margin-left:12px;">Auto-refresh a cada 10s</span>
-</div>
-
 <div class="section">
   <h3>📋 Transações</h3>
   <table>
@@ -950,73 +881,7 @@ ${clientTotems.length > 1 ? `
   </table>
 </div>
 
-<script>
-const TOTEM_IDS = ${JSON.stringify(clientTotems.map(t => t.id))};
-
-async function loadScreenshot(totemId) {
-  const scrDiv = document.getElementById('scr-' + totemId);
-  if (!scrDiv) return;
-  scrDiv.innerHTML = '<div class="tel-noimg">Carregando...</div>';
-  try {
-    const res = await fetch('/api/totem/telemetry/' + encodeURIComponent(totemId));
-    const data = await res.json();
-    if (data.success && data.screenshot) {
-      scrDiv.innerHTML = '<img src="data:image/jpeg;base64,' + data.screenshot + '" alt="Screenshot" onerror="this.parentElement.innerHTML=\'<div class=tel-noimg>Erro ao carregar</div>\'">';
-    } else {
-      scrDiv.innerHTML = '<div class="tel-noimg">Nenhuma screenshot</div>';
-    }
-  } catch (e) {
-    scrDiv.innerHTML = '<div class="tel-noimg">Erro de conexão</div>';
-  }
-}
-
-async function loadAllScreenshots() {
-  for (const id of TOTEM_IDS) {
-    await loadScreenshot(id);
-  }
-}
-
-async function refreshTelemetry() {
-  try {
-    for (const id of TOTEM_IDS) {
-      const res = await fetch('/api/totem/telemetry/' + encodeURIComponent(id));
-      const data = await res.json();
-      if (data.success && data.telemetry) {
-        const t = data.telemetry;
-        const cpuEl = document.getElementById('cpu-' + id);
-        const ramEl = document.getElementById('ram-' + id);
-        const p10El = document.getElementById('p10-' + id);
-        const p20El = document.getElementById('p20-' + id);
-        const errEl = document.getElementById('err-' + id);
-        const timeEl = document.getElementById('time-' + id);
-        if (cpuEl) cpuEl.textContent = (t.cpu || '0') + '%';
-        if (ramEl) ramEl.textContent = (t.ram || '0') + '%';
-        if (p10El) p10El.textContent = t.paper_10x15 || '0';
-        if (p20El) p20El.textContent = t.paper_15x20 || '0';
-        if (errEl) {
-          const e = t.printer_error || '';
-          errEl.textContent = (e && e !== 'Sem erros' && e !== 'N/A') ? '⚠️ ' + e : '✅ OK';
-        }
-        if (timeEl && t.created_at) {
-          timeEl.textContent = '🕐 ' + new Date(t.created_at + 'Z').toLocaleString('pt-BR');
-        }
-        // Update gauge bars
-        const cpuFill = cpuEl?.closest('.tel-card')?.querySelector('.tel-gauge:nth-child(1) .tel-fill');
-        const ramFill = ramEl?.closest('.tel-card')?.querySelector('.tel-gauge:nth-child(2) .tel-fill');
-        const cpuVal = Math.min(parseFloat(t.cpu) || 0, 100);
-        const ramVal = Math.min(parseFloat(t.ram) || 0, 100);
-        if (cpuFill) { cpuFill.style.width = cpuVal + '%'; cpuFill.style.background = cpuVal >= 90 ? '#ef4444' : cpuVal >= 70 ? '#f59e0b' : '#22c55e'; }
-        if (ramFill) { ramFill.style.width = ramVal + '%'; ramFill.style.background = ramVal >= 90 ? '#ef4444' : ramVal >= 70 ? '#f59e0b' : '#22c55e'; }
-      }
-    }
-  } catch (e) {
-    // silent
-  }
-}
-
-// Auto-refresh stats a cada 10s, screenshots carregadas manualmente
-setInterval(refreshTelemetry, 10000);
-</script>`;
+`;
 }
 
 // ══════════════════════════════════════════════════════════
@@ -1024,7 +889,33 @@ setInterval(refreshTelemetry, 10000);
 // ══════════════════════════════════════════════════════════
 function livePage(user, clientTotems) {
   const totemIds = clientTotems.map(t => t.id);
-  const idsJson = JSON.stringify(totemIds);
+  const telemetry = getLatestTelemetryForTotems(totemIds);
+
+  function paperStatus(v) {
+    const n = parseInt(v) || 0;
+    return n > 20 ? '<span class="live-paper-good">✔ Suficiente</span>' : n > 10 ? '<span class="live-paper-warning">⚠ Atenção</span>' : n > 0 ? '<span class="live-paper-warning">⚠ Pouco papel</span>' : '<span class="live-paper-critical">✖ Sem papel</span>';
+  }
+
+  let warnings = 0, criticals = 0;
+  const initialCards = clientTotems.map(t => {
+    const tel = telemetry[t.id] || {};
+    const cpu = parseFloat(tel.cpu) || 0;
+    if (cpu >= 90) criticals++;
+    else if (cpu >= 70) warnings++;
+    const p10 = tel.paper_10x15 || '0';
+    const p20 = tel.paper_15x20 || '0';
+    const timeStr = tel.created_at ? new Date(tel.created_at+'Z').toLocaleString('pt-BR') : '—';
+    return `<div class="live-card" id="lc-${t.id}">
+      <div class="live-card-id">${t.name || t.id}</div>
+      <div class="live-stats">
+        <div class="live-stat"><div>CPU</div><div class="live-stat-value live-cpu" data-stat="cpu">${cpu}%</div></div>
+        <div class="live-stat"><div>10×15</div><div class="live-stat-value" data-stat="p10">${p10}</div><div class="live-paper-indicator" data-stat="p10i">${paperStatus(p10)}</div></div>
+        <div class="live-stat"><div>15×20</div><div class="live-stat-value" data-stat="p20">${p20}</div><div class="live-paper-indicator" data-stat="p20i">${paperStatus(p20)}</div></div>
+      </div>
+      <div class="live-screenshot" id="lvscr-${t.id}"><div class="live-noimg">Carregando...</div></div>
+      <div class="live-timestamp">🕐 ${timeStr}</div>
+    </div>`;
+  }).join('');
 
   return `
 <style>
@@ -1064,13 +955,13 @@ function livePage(user, clientTotems) {
   <div class="live-header">
     <div class="live-logo">🖥️ Ao Vivo</div>
     <div class="live-status">
-      <span class="live-pill"><span id="lv-total">0</span> Totens</span>
-      <span class="live-pill live-warning" id="lv-warn-pill" style="display:none"><span id="lv-warn">0</span> Alertas</span>
-      <span class="live-pill live-critical" id="lv-crit-pill" style="display:none"><span id="lv-crit">0</span> Críticos</span>
+      <span class="live-pill"><span id="lv-total">${clientTotems.length}</span> Totens</span>
+      <span class="live-pill live-warning" id="lv-warn-pill" style="display:${warnings > 0 ? '' : 'none'}"><span id="lv-warn">${warnings}</span> Alertas</span>
+      <span class="live-pill live-critical" id="lv-crit-pill" style="display:${criticals > 0 ? '' : 'none'}"><span id="lv-crit">${criticals}</span> Críticos</span>
     </div>
   </div>
 
-  <div id="lv-grid" class="live-grid"></div>
+  <div id="lv-grid" class="live-grid">${initialCards}</div>
 
   <div class="live-footer">
     <span id="lv-server">🔌 Servidor: <span class="live-dot online"></span> Online</span>
@@ -1079,51 +970,45 @@ function livePage(user, clientTotems) {
 
 <script>
 (function(){
-const TOTEM_IDS = ${idsJson};
-const TOTEM_NAMES = ${JSON.stringify(Object.fromEntries(clientTotems.map(t => [t.id, t.name || t.id])))};
+const TOTEM_IDS = ${JSON.stringify(totemIds)};
 
-function statusColor(v){const n=parseFloat(v)||0;return n>=90?'#ff3d71':n>=70?'#ffaa00':'#6c5ce7';}
-
-function paperStatus(v){const n=parseInt(v)||0;if(n>20)return '<span class="live-paper-good">✔ Suficiente</span>';if(n>10)return '<span class="live-paper-warning">⚠ Atenção</span>';if(n>0)return '<span class="live-paper-warning">⚠ Pouco papel</span>';return '<span class="live-paper-critical">✖ Sem papel</span>';}
-
-function renderCard(id, tel, scr){
-  const cpu=tel.cpu||'0', ram=tel.ram||'0', p10=tel.paper_10x15||'0', p20=tel.paper_15x20||'0';
-  const timeStr=tel.created_at?new Date(tel.created_at+'Z').toLocaleString('pt-BR'):'—';
-  const scrHtml=scr?'<img src="data:image/jpeg;base64,'+scr+'" alt="Screen" onerror="this.parentElement.innerHTML=\'<div class=live-noimg>Erro</div>\'">':'<div class="live-noimg">Sem screenshot</div>';
-  return '<div class="live-card">'+
-    '<div class="live-card-id">'+TOTEM_NAMES[id]||id+'</div>'+
-    '<div class="live-stats">'+
-      '<div class="live-stat"><div>CPU</div><div class="live-stat-value live-cpu">'+cpu+'%</div></div>'+
-      '<div class="live-stat"><div>10×15</div><div class="live-stat-value">'+p10+'</div><div class="live-paper-indicator">'+paperStatus(p10)+'</div></div>'+
-      '<div class="live-stat"><div>15×20</div><div class="live-stat-value">'+p20+'</div><div class="live-paper-indicator">'+paperStatus(p20)+'</div></div>'+
-    '</div>'+
-    '<div class="live-screenshot">'+scrHtml+'</div>'+
-    '<div class="live-timestamp">🕐 '+timeStr+'</div>'+
-  '</div>';
-}
+function paperStatus(v){var n=parseInt(v)||0;if(n>20)return '<span class=\\"live-paper-good\\">✔ Suficiente</span>';if(n>10)return '<span class=\\"live-paper-warning\\">⚠ Atenção</span>';if(n>0)return '<span class=\\"live-paper-warning\\">⚠ Pouco papel</span>';return '<span class=\\"live-paper-critical\\">✖ Sem papel</span>';}
 
 async function refresh(){
   try{
-    const res=await fetch('/api/totem/telemetry?ids='+TOTEM_IDS.join(','));
-    const data=await res.json();
+    var ids = TOTEM_IDS.map(function(id){return encodeURIComponent(id)}).join(',');
+    var res = await fetch('/api/totem/telemetry?ids=' + ids);
+    var data = await res.json();
     if(!data.success) return;
-    const grid=document.getElementById('lv-grid');
-    if(!grid) return;
-    let html='', warnings=0, criticals=0;
-    for(const id of TOTEM_IDS){
-      const tel=data.telemetry[id]||{};
-      const scr=data.screenshots[id]||null;
-      const cpu=parseFloat(tel.cpu)||0;
-      if(cpu>=90) criticals++; else if(cpu>=70) warnings++;
-      html+=renderCard(id, tel, scr);
+    var warnings = 0, criticals = 0;
+    for(var i = 0; i < TOTEM_IDS.length; i++){
+      var id = TOTEM_IDS[i];
+      var tel = data.telemetry[id] || {};
+      var cpu = parseFloat(tel.cpu) || 0;
+      if(cpu >= 90) criticals++; else if(cpu >= 70) warnings++;
+      var p10 = tel.paper_10x15 || '0';
+      var p20 = tel.paper_15x20 || '0';
+      var timeStr = tel.created_at ? new Date(tel.created_at + 'Z').toLocaleString('pt-BR') : '—';
+      var card = document.getElementById('lc-' + id);
+      if(card){
+        card.querySelector('[data-stat=\\"cpu\\"]').textContent = cpu + '%';
+        card.querySelector('[data-stat=\\"p10\\"]').textContent = p10;
+        card.querySelector('[data-stat=\\"p20\\"]').textContent = p20;
+        card.querySelector('[data-stat=\\"p10i\\"]').innerHTML = paperStatus(p10);
+        card.querySelector('[data-stat=\\"p20i\\"]').innerHTML = paperStatus(p20);
+        card.querySelector('.live-timestamp').textContent = '🕐 ' + timeStr;
+      }
+      var scrDiv = document.getElementById('lvscr-' + id);
+      if(scrDiv && data.screenshots[id]){
+        scrDiv.innerHTML = '<img src=\\"data:image/jpeg;base64,' + data.screenshots[id] + '\\" alt=\\"Screen\\" onerror=\\"this.parentElement.innerHTML=\\'<div class=live-noimg>Erro</div>\\'\\">';
+      }
     }
-    grid.innerHTML=html;
-    document.getElementById('lv-total').textContent=TOTEM_IDS.length;
-    const w=document.getElementById('lv-warn'); if(w) w.textContent=warnings;
-    const wp=document.getElementById('lv-warn-pill'); if(wp) wp.style.display=warnings>0?'':'none';
-    const c=document.getElementById('lv-crit'); if(c) c.textContent=criticals;
-    const cp=document.getElementById('lv-crit-pill'); if(cp) cp.style.display=criticals>0?'':'none';
-  }catch(e){/*silent*/}
+    document.getElementById('lv-total').textContent = TOTEM_IDS.length;
+    var wp = document.getElementById('lv-warn-pill');
+    if(wp){ wp.style.display = warnings > 0 ? '' : 'none'; document.getElementById('lv-warn').textContent = warnings; }
+    var cp = document.getElementById('lv-crit-pill');
+    if(cp){ cp.style.display = criticals > 0 ? '' : 'none'; document.getElementById('lv-crit').textContent = criticals; }
+  }catch(e){ console.error('[Ao Vivo]', e); }
 }
 
 refresh();
