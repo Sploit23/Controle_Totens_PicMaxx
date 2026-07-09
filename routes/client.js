@@ -1018,8 +1018,10 @@ footer{text-align:center;padding:1rem;border-top:var(--glass-border);color:var(-
     </p>
   </footer>
 </div>
+<div id="js-status" style="background:#ff0;color:#000;padding:8px;text-align:center;font-weight:bold;font-size:14px;">⏳ JS carregando...</div>
 <script>
 var TOTEM_IDS = ${idsJson};
+document.getElementById('js-status').textContent = '✅ JS rodou! Totens: '+TOTEM_IDS.length+' ('+TOTEM_IDS.join(', ')+')';
 console.log('[Ao Vivo] TOTEM_IDS:', TOTEM_IDS);
 var DEBUG = document.createElement('div');
 DEBUG.id='debug-info';DEBUG.style.cssText='font-size:11px;color:#888;padding:4px 1rem;text-align:center;border-top:1px solid rgba(255,255,255,.05)';
@@ -1080,19 +1082,44 @@ function updateServerStatus(online){
   d.className='status-dot '+(online?'online':'offline');
 }
 
-function updateTotemCard(id){renderFullTotem(id)}
+  function updateTotemCard(id){
+  try{
+    renderFullTotem(id);
+  }catch(e){
+    console.error('[Ao Vivo] renderFullTotem error for', id, e);
+    var js = document.getElementById('js-status');
+    if(js) js.textContent = '❌ Erro renderFullTotem('+id+'): '+e.message;
+  }
+}
 
 function initData(data){
   console.log('[Ao Vivo] initData keys:', Object.keys(data));
   for(var k in data){totemData[k]=data[k]}
-  for(var k in totemData){renderFullTotem(k)}
+  for(var k in totemData){
+    try{
+      renderFullTotem(k);
+    }catch(e){
+      console.error('[Ao Vivo] renderFullTotem error', k, e);
+      var js = document.getElementById('js-status');
+      if(js) js.textContent = '❌ Erro renderFullTotem('+k+'): '+e.message;
+    }
+  }
   updateStatusCounts();
   updateServerStatus(true);
   updateDebug();
+  var js = document.getElementById('js-status');
+  if(js) js.textContent = '✅ initData OK - '+Object.keys(totemData).length+' cards renderizados';
 }
 
 var initialData = ${initialDataJson};
-try{initData(initialData)}catch(e){console.error('[Ao Vivo] initData:',e)}
+try{
+  console.log('[Ao Vivo] initialData:', JSON.stringify(initialData));
+  initData(initialData);
+}catch(e){
+  console.error('[Ao Vivo] initData:', e);
+  var js = document.getElementById('js-status');
+  if(js) js.textContent = '❌ initData error: '+e.message;
+}
 
 async function poll(){
   try{
