@@ -205,33 +205,20 @@ router.post('/update-account', (req, res) => {
   const user = getUserById(req.session.userId);
   if (!user) return res.status(401).json({ error: 'Nao autorizado' });
 
-  const { name, email, currentPassword, newPassword } = req.body;
+  const { name, email } = req.body;
 
   const updates = {};
 
-  // Validar e atualizar nome
   if (name && name.trim()) {
     updates.name = name.trim();
   }
 
-  // Validar e atualizar email
   if (email && email.trim()) {
     const existing = getUserByEmail(email.trim());
     if (existing && existing.id !== user.id) {
       return res.status(400).json({ error: 'Este email ja esta em uso por outro usuario' });
     }
     updates.email = email.trim();
-  }
-
-  // Alterar senha (se forneceu current + new)
-  if (currentPassword && newPassword) {
-    if (!verifyPassword(currentPassword, user.password_hash)) {
-      return res.status(400).json({ error: 'Senha atual incorreta' });
-    }
-    if (newPassword.length < 6) {
-      return res.status(400).json({ error: 'Nova senha deve ter no minimo 6 caracteres' });
-    }
-    updates.password_hash = hashPassword(newPassword);
   }
 
   if (Object.keys(updates).length === 0) {
@@ -925,17 +912,6 @@ function settingsPage(user, config) {
       <div class="hint">Para onde os alertas do totem serão enviados</div>
       <div id="test-email-status" style="font-size:12px;margin-top:4px;"></div>
     </div>
-    <div class="form-group full" style="border-bottom:1px solid #f0f0f0;padding-bottom:12px;margin:8px 0;">
-      <h4 style="font-size:14px;font-weight:700;color:#333;">Alterar Senha (opcional)</h4>
-    </div>
-    <div class="form-group">
-      <label for="acc-current-password">Senha atual</label>
-      <input type="password" id="acc-current-password" placeholder="Deixe em branco para manter">
-    </div>
-    <div class="form-group">
-      <label for="acc-new-password">Nova senha</label>
-      <input type="password" id="acc-new-password" placeholder="Mínimo 6 caracteres">
-    </div>
     <div class="form-group full">
       <button type="submit" class="btn-save">Salvar Dados</button>
     </div>
@@ -967,8 +943,6 @@ document.getElementById('accountForm').onsubmit = async function(e) {
   const data = {
     name: document.getElementById('acc-name').value,
     email: document.getElementById('acc-email').value,
-    currentPassword: document.getElementById('acc-current-password').value,
-    newPassword: document.getElementById('acc-new-password').value,
   };
   const res = await fetch('/client/update-account', {
     method: 'POST',
@@ -980,9 +954,6 @@ document.getElementById('accountForm').onsubmit = async function(e) {
     alert(result.error);
     return;
   }
-  // Limpar campos de senha
-  document.getElementById('acc-current-password').value = '';
-  document.getElementById('acc-new-password').value = '';
   // Atualizar nome na navbar
   const toast = document.getElementById('account-toast');
   toast.textContent = 'Dados salvos com sucesso!';
