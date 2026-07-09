@@ -909,7 +909,18 @@ function livePage(user, clientTotems) {
   const initialDataJson = JSON.stringify(totemData).replace(/<\//g, '<\\/');
   const idsJson = JSON.stringify(totemIds);
 
-  return `<style>
+  const debug = {
+    totemIds,
+    totemCount: clientTotems.length,
+    telemetryKeys: Object.keys(totemData),
+    hasTelemetry: Object.values(totemData).some(d => d.time !== new Date().toISOString()),
+    totemDataPreview: Object.fromEntries(
+      Object.entries(totemData).map(([k, v]) => [k, { ...v, screenshot: v.screenshot ? '(has ss)' : '(no ss)' }])
+    )
+  };
+
+  return `<!-- SERVER DEBUG: ${JSON.stringify(debug)} -->
+<style>
 *{margin:0;padding:0;box-sizing:border-box}
 :root{--bg-primary:#0f0f13;--bg-secondary:#1a1a24;--bg-tertiary:#252535;--text-primary:#f0f0ff;--text-secondary:#c0c0e0;--accent-primary:#6c5ce7;--accent-secondary:#8175ff;--accent-gradient:linear-gradient(135deg,var(--accent-primary),var(--accent-secondary));--success:#00e676;--warning:#ffaa00;--danger:#ff3d71;--border-color:#3a3a4a;--shadow-color:rgba(0,0,0,.6);--card-shadow:0 8px 24px rgba(0,0,0,.3);--transition-speed:.3s;--glass-effect:rgba(30,30,45,.5);--glass-border:1px solid rgba(255,255,255,.1);--glass-blur:blur(12px)}
 body{font-family:'Inter',-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;background-color:var(--bg-primary);color:var(--text-primary);line-height:1.6;background-image:radial-gradient(circle at 25% 25%,rgba(108,92,231,0.15) 0%,transparent 50%),radial-gradient(circle at 75% 75%,rgba(255,61,113,0.1) 0%,transparent 50%);background-attachment:fixed}
