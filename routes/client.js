@@ -898,8 +898,6 @@ function livePage(user, clientTotems) {
     const scr = getLatestScreenshot(t.id);
     totemData[t.id] = {
       id: t.id,
-      cpu: tel.cpu || '0',
-      ram: tel.ram || '0',
       paper_10x15: tel.paper_10x15 || '0',
       paper_15x20: tel.paper_15x20 || '0',
       printer_error: tel.printer_error || 'N/A',
@@ -974,6 +972,13 @@ footer{text-align:center;padding:1rem;border-top:var(--glass-border);color:var(-
 .hidden{display:none!important}
 @media(max-width:768px){.header-content{flex-direction:column;gap:1rem}.system-status{width:100%;justify-content:center;flex-wrap:wrap}.grid-view{grid-template-columns:repeat(auto-fill,minmax(300px,1fr))}}
 @media(max-width:480px){.grid-view{grid-template-columns:1fr}}
+.full-totem-header{display:flex;align-items:center;justify-content:center;padding:.85rem 1.3rem;border-top-left-radius:1.1rem;border-top-right-radius:1.1rem;font-size:1.04rem;font-weight:800;letter-spacing:.7px;margin-bottom:0;background:rgba(30,30,45,.85);backdrop-filter:blur(6px) saturate(1.2);box-shadow:0 2px 16px rgba(0,0,0,.1);border-bottom:1.5px solid rgba(255,255,255,.08);transition:background .3s,color .3s}
+.full-totem-title{color:#fff;text-shadow:0 2px 12px #000a,0 1px 0 #1ed76044;font-size:1.04em;font-weight:800;letter-spacing:.7px;text-transform:uppercase;text-align:center;flex:1;transition:color .3s,text-shadow .3s}
+.header-status-online{background:linear-gradient(90deg,#1ed760cc 0%,#1ed76033 100%),rgba(30,30,45,.45);color:#fff}
+.header-status-offline{background:linear-gradient(90deg,#ff3d71cc 0%,#ff3d7133 100%),rgba(30,30,45,.45);color:#fff}
+.card-full-online{border:2.5px solid #1ed760;box-shadow:0 0 24px #1ed76055,0 0 0 1.5px #fff1 inset;transition:border .3s,box-shadow .3s}
+.card-full-offline{border:2.5px solid #ff3d71;box-shadow:0 0 24px #ff3d7188,0 0 0 1.5px #fff1 inset;transition:border .3s,box-shadow .3s}
+.full-totem-card{width:100%;min-width:280px;max-width:350px;margin:0 auto;display:flex;flex-direction:column;align-items:stretch;justify-content:flex-start}
 </style>
 <div class="app-container">
   <header class="main-header">
@@ -1023,13 +1028,12 @@ function renderFullTotem(id){
   var paperEmpty=(parseInt(data.paper_10x15)===0||parseInt(data.paper_15x20)===0);
   var offline=diff>OFFLINE_TIMEOUT||paperEmpty;
   var sc=offline?'offline':'online',st=offline?'OFFLINE':'ONLINE';
-  var p10l=getPaperLevel(data.paper_10x15),p20l=getPaperLevel(data.paper_15x20),cs=getResourceStatus(data.cpu);
+  var p10l=getPaperLevel(data.paper_10x15),p20l=getPaperLevel(data.paper_15x20);
   var card=document.createElement('div');card.id='totem-'+id;
   card.className='totem-card full-totem-card card-full-'+sc;
   card.innerHTML='<div class="full-totem-header header-status-'+sc+'"><span class="full-totem-title">'+id+'</span></div>'+
     '<div class="totem-content">'+
       '<div class="resource-info"><div class="resource-stats">'+
-        '<div class="resource-stat cpu-stat '+cs+'"><div class="stat-label">CPU</div><div class="stat-value">'+data.cpu+'%</div></div>'+
         '<div class="resource-stat paper-stat '+p10l+'"><div class="stat-label">Papel 10x15</div><div class="stat-value">'+(data.paper_10x15||'0')+'</div><div class="paper-indicator">'+getPaperStatus(data.paper_10x15)+'</div></div>'+
         '<div class="resource-stat paper-stat '+p20l+'"><div class="stat-label">Papel 15x20</div><div class="stat-value">'+(data.paper_15x20||'0')+'</div><div class="paper-indicator">'+getPaperStatus(data.paper_15x20)+'</div></div>'+
       '</div><div class="timestamp">Atualizado: '+new Date(data.time).toLocaleTimeString('pt-BR')+'</div></div>'+
@@ -1045,7 +1049,7 @@ function updateStatusCounts(){
     var last=new Date(totemData[k].time).getTime(),diff=(now-last)/1000;
     var paperEmpty=(parseInt(totemData[k].paper_10x15)===0||parseInt(totemData[k].paper_15x20)===0);
     if(diff>OFFLINE_TIMEOUT||paperEmpty) criticals++;
-    else if(parseInt(totemData[k].cpu)>=70||parseInt(totemData[k].paper_10x15)<=PAPER_LOW||parseInt(totemData[k].paper_15x20)<=PAPER_LOW) warnings++;
+    else if(parseInt(totemData[k].paper_10x15)<=PAPER_LOW||parseInt(totemData[k].paper_15x20)<=PAPER_LOW) warnings++;
   }
   totalCount.textContent=total;
   warningCount.textContent=warnings;
@@ -1069,7 +1073,7 @@ function initData(data){
 }
 
 var initialData = ${initialDataJson};
-initData(initialData);
+try{initData(initialData)}catch(e){console.error('[Ao Vivo] initData:',e)}
 
 async function poll(){
   try{
@@ -1082,8 +1086,6 @@ async function poll(){
       var id=TOTEM_IDS[i];
       if(json.telemetry[id]){
         var t=json.telemetry[id];
-        totemData[id].cpu=t.cpu||'0';
-        totemData[id].ram=t.ram||'0';
         totemData[id].paper_10x15=t.paper_10x15||'0';
         totemData[id].paper_15x20=t.paper_15x20||'0';
         totemData[id].printer_error=t.printer_error||'N/A';
