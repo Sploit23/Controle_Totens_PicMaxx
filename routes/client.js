@@ -1055,8 +1055,10 @@ function renderFullTotem(id){
         '<div class="resource-stat paper-stat '+p10l+'"><div class="stat-label">Papel 10x15</div><div class="stat-value">'+(data.paper_10x15||'0')+'</div><div class="paper-indicator">'+getPaperStatus(data.paper_10x15)+'</div></div>'+
         '<div class="resource-stat paper-stat '+p20l+'"><div class="stat-label">Papel 15x20</div><div class="stat-value">'+(data.paper_15x20||'0')+'</div><div class="paper-indicator">'+getPaperStatus(data.paper_15x20)+'</div></div>'+
       '</div><div class="timestamp">Atualizado: '+new Date(data.time).toLocaleTimeString('pt-BR')+'</div></div>'+
-      '<div class="screenshot-container"><img src="data:image/jpeg;base64,'+data.screenshot+'" alt="Tela do totem" onerror="this.parentElement.innerHTML=\'<div style=color:#666;font-size:.85rem;padding:20px;>Sem screenshot</div>\'"></div>'+
+      '<div class="screenshot-container"><img src="data:image/jpeg;base64,'+data.screenshot+'" alt="Tela do totem"></div>'+
     '</div>';
+  var img = card.querySelector('.screenshot-container img');
+  if(img) img.onerror = function(){this.parentElement.innerHTML='<div style=color:#666;font-size:.85rem;padding:20px;>Sem screenshot</div>';};
   var old=document.getElementById('totem-'+id);if(old)old.replaceWith(card);else document.getElementById('totems-container').appendChild(card);
 }
 
