@@ -88,6 +88,13 @@ setInterval(() => {
   try { cleanupTelemetry(); } catch (e) { /* ignore */ }
 }, 30 * 60 * 1000);
 
+// Verificacao de alertas (offline, papel baixo, erro impressora) a cada 60s
+const { checkAndNotify } = require('./notification');
+setInterval(() => {
+  checkAndNotify().catch(e => log(null, '[Notificacao] Erro no check:', e.message));
+}, 60 * 1000);
+log(null, '[Notificacao] Monitoramento de alertas iniciado (check a cada 60s)');
+
 const server = http.createServer(app);
 initWebSocket(server);
 

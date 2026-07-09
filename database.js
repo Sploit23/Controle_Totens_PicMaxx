@@ -107,6 +107,13 @@ function initDatabase() {
       screenshot TEXT,
       updated_at TEXT DEFAULT (datetime('now'))
     );
+    CREATE TABLE IF NOT EXISTS notification_log (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      totem_id TEXT NOT NULL,
+      alert_type TEXT NOT NULL,
+      alert_value TEXT,
+      sent_at TEXT DEFAULT (datetime('now'))
+    );
   `);
 
   return db;
@@ -386,6 +393,19 @@ module.exports = {
     }
     // Delete screenshots with no recent telemetry (older than 24h)
     db.prepare(`DELETE FROM screenshots WHERE updated_at < datetime('now', '-1 day')`).run();
+  },
+
+  // ---- Notifications ----
+  saveNotification(totemId, alertType, alertValue) {
+    db.prepare(`INSERT INTO notification_log (totem_id, alert_type, alert_value) VALUES (?, ?, ?)`).run(totemId, alertType, alertValue || '');
+  },
+
+  getLastNotification(totemId, alertType) {
+    return db.prepare(`SELECT * FROM notification_log WHERE totem_id = ? AND alert_type = ? ORDER BY sent_at DESC LIMIT 1`).get(totemId, alertType) || null;
+  },
+
+  getNotificationsByTotem(totemId, limit = 20) {
+    return db.prepare(`SELECT * FROM notification_log WHERE totem_id = ? ORDER BY sent_at DESC LIMIT ?`).all(totemId, limit);
   },
 
   // ---- Client Config ----

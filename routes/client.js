@@ -200,6 +200,145 @@ router.get('/api/config', (req, res) => {
   });
 });
 
+// ─── API: ATUALIZAR DADOS DA CONTA ──────────────────────
+router.post('/update-account', (req, res) => {
+  const user = getUserById(req.session.userId);
+  if (!user) return res.status(401).json({ error: 'Nao autorizado' });
+
+  const { name, email, currentPassword, newPassword } = req.body;
+
+  const updates = {};
+
+  // Validar e atualizar nome
+  if (name && name.trim()) {
+    updates.name = name.trim();
+  }
+
+  // Validar e atualizar email
+  if (email && email.trim()) {
+    const existing = getUserByEmail(email.trim());
+    if (existing && existing.id !== user.id) {
+      return res.status(400).json({ error: 'Este email ja esta em uso por outro usuario' });
+    }
+    updates.email = email.trim();
+  }
+
+  // Alterar senha (se forneceu current + new)
+  if (currentPassword && newPassword) {
+    if (!verifyPassword(currentPassword, user.password_hash)) {
+      return res.status(400).json({ error: 'Senha atual incorreta' });
+    }
+    if (newPassword.length < 6) {
+      return res.status(400).json({ error: 'Nova senha deve ter no minimo 6 caracteres' });
+    }
+    updates.password_hash = hashPassword(newPassword);
+  }
+
+  if (Object.keys(updates).length === 0) {
+    return res.status(400).json({ error: 'Nenhum dado para atualizar' });
+  }
+
+  updateUser(user.id, updates);
+  log(req.rid, `Conta atualizada: usuario ${user.id} -> ${JSON.stringify(updates)}`);
+
+  // Atualizar sessão com novo nome/email
+  const updated = getUserById(user.id);
+  req.session.name = updated.name;
+  req.session.email = updated.email;
+
+  res.json({ success: true, name: updated.name, email: updated.email });
+});
+
+// ─── API: TESTAR NOTIFICAÇÃO ────────────────────────────
+const nodemailer = require('nodemailer');
+
+router.post('/test-notification', async (req, res) => {
+  try {
+    const user = getUserById(req.session.userId);
+    if (!user) return res.status(401).json({ error: 'Nao autorizado' });
+
+    const { email } = req.body;
+    if (!email || !email.trim()) {
+      return res.status(400).json({ error: 'Informe um email' });
+    }
+
+    const host = process.env.SMTP_HOST;
+    const port = parseInt(process.env.SMTP_PORT) || 587;
+    const smtpUser = process.env.SMTP_USER;
+    const smtpPass = process.env.SMTP_PASS;
+    const from = process.env.SMTP_FROM;
+    const fromName = process.env.SMTP_FROM_NAME || 'Maxx Print - Monitoramento';
+
+    if (!host || !smtpUser || !smtpPass) {
+      return res.status(500).json({ error: 'SMTP nao configurado no servidor' });
+    }
+
+    const transporter = nodemailer.createTransport({
+      host,
+      port: 465,
+      secure: true,
+      auth: { user: smtpUser, pass: smtpPass },
+      tls: { rejectUnauthorized: false },
+    });
+
+    const totems = getTotemsByUser(user.id);
+    const totemList = totems.length > 0
+      ? totems.map(t => `<tr><td style="padding:6px 10px;border:1px solid #eee;">${t.name || t.id}</td><td style="padding:6px 10px;border:1px solid #eee;color:#888;">${t.id}</td></tr>`).join('')
+      : '<tr><td style="padding:10px;text-align:center;color:#999;">Nenhum totem vinculado</td></tr>';
+
+    const html = `
+      <div style="font-family:Arial,Helvetica,sans-serif;max-width:600px;margin:0 auto;padding:20px">
+        <div style="text-align:center;padding:16px 0">
+          <h1 style="margin:0;font-size:48px">✅</h1>
+          <h2 style="color:#00A6C0;margin:8px 0 0">Teste de Notificação</h2>
+          <p style="color:#666;font-size:14px;">Este é um teste do sistema de alertas do seu totem</p>
+        </div>
+
+        <div style="background:#f8f9fa;border-radius:8px;padding:16px 20px;margin:16px 0">
+          <p style="margin:0 0 8px;font-size:14px;color:#555;"><strong>Cliente:</strong> ${user.name}</p>
+          <p style="margin:0;font-size:14px;color:#555;"><strong>Email cadastrado:</strong> ${email}</p>
+        </div>
+
+        <h3 style="font-size:15px;margin:16px 0 8px;">📡 Seus Totens</h3>
+        <table style="width:100%;border-collapse:collapse;font-size:13px;">
+          <thead><tr style="background:#f5f5f5;"><th style="padding:6px 10px;border:1px solid #eee;text-align:left;">Nome</th><th style="padding:6px 10px;border:1px solid #eee;text-align:left;">ID</th></tr></thead>
+          <tbody>${totemList}</tbody>
+        </table>
+
+        <h3 style="font-size:15px;margin:20px 0 8px;">🔔 Alertas que você receberá</h3>
+        <table style="width:100%;border-collapse:collapse;font-size:13px;">
+          <thead><tr style="background:#f5f5f5;"><th style="padding:8px 10px;border:1px solid #eee;text-align:left;">Alerta</th><th style="padding:8px 10px;border:1px solid #eee;text-align:left;">Quando ocorre</th></tr></thead>
+          <tbody>
+            <tr><td style="padding:8px 10px;border:1px solid #eee;">🔴 Totem Offline</td><td style="padding:8px 10px;border:1px solid #eee;">Quando o totem fica mais de 90s sem se comunicar</td></tr>
+            <tr><td style="padding:8px 10px;border:1px solid #eee;">🟢 Totem Online Novamente</td><td style="padding:8px 10px;border:1px solid #eee;">Quando o totem volta a ficar online após ficar offline</td></tr>
+            <tr><td style="padding:8px 10px;border:1px solid #eee;">📋 Papel 10×15 Baixo</td><td style="padding:8px 10px;border:1px solid #eee;">Quando restam menos de 10 folhas de papel 10×15</td></tr>
+            <tr><td style="padding:8px 10px;border:1px solid #eee;">📋 Papel 15×20 Baixo</td><td style="padding:8px 10px;border:1px solid #eee;">Quando restam menos de 10 folhas de papel 15×20</td></tr>
+            <tr><td style="padding:8px 10px;border:1px solid #eee;">🖨️ Erro na Impressora</td><td style="padding:8px 10px;border:1px solid #eee;">Quando o totem reporta erro na impressora</td></tr>
+          </tbody>
+        </table>
+
+        <p style="font-size:12px;color:#999;margin-top:20px;text-align:center;">
+          Você receberá no máximo 1 notificação do mesmo tipo a cada 30 minutos.<br>
+          Este é um envio automático do sistema de monitoramento Kiosk de Fotos / Maxx Print.
+        </p>
+      </div>
+    `;
+
+    await transporter.sendMail({
+      from: `"${fromName}" <${from}>`,
+      to: email.trim(),
+      subject: `[Maxx Print] ✅ Teste de Notificação — ${user.name}`,
+      html,
+    });
+
+    log(req.rid, `Test notification enviado para ${email} (usuario ${user.id})`);
+    res.json({ success: true });
+  } catch (e) {
+    console.error('[Test-Notification] Erro:', e.message);
+    res.status(500).json({ error: e.message || 'Erro ao enviar email de teste' });
+  }
+});
+
 module.exports = router;
 
 // ══════════════════════════════════════════════════════════
@@ -770,19 +909,40 @@ function settingsPage(user, config) {
 
 <div class="section">
   <h3>👤 Dados da Conta</h3>
-  <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;">
-    <div>
-      <label style="display:block;font-size:12px;font-weight:600;color:#555;margin-bottom:4px;">Nome</label>
-      <div style="font-size:15px;font-weight:600;">${user.name}</div>
+  <div id="account-toast" class="toast">Salvo com sucesso!</div>
+
+  <form id="accountForm" class="form-grid">
+    <div class="form-group">
+      <label for="acc-name">Nome</label>
+      <input type="text" id="acc-name" value="${escapeHtml(user.name)}" placeholder="Seu nome">
     </div>
-    <div>
-      <label style="display:block;font-size:12px;font-weight:600;color:#555;margin-bottom:4px;">Email</label>
-      <div style="font-size:15px;font-weight:600;">${user.email}</div>
+    <div class="form-group">
+      <label for="acc-email">Email <strong style="color:#d8232a;">(notificações)</strong></label>
+      <div style="display:flex;gap:8px;">
+        <input type="email" id="acc-email" value="${user.email}" placeholder="seu@email.com" style="flex:1;">
+        <button type="button" id="btn-test-email" onclick="testNotification()" style="padding:10px 16px;background:#00A6C0;color:#fff;font-weight:700;border:none;border-radius:10px;cursor:pointer;white-space:nowrap;font-size:13px;">Testar</button>
+      </div>
+      <div class="hint">Para onde os alertas do totem serão enviados</div>
+      <div id="test-email-status" style="font-size:12px;margin-top:4px;"></div>
     </div>
-    <div>
-      <label style="display:block;font-size:12px;font-weight:600;color:#555;margin-bottom:4px;">Plano</label>
-      <div style="font-size:15px;font-weight:600;text-transform:capitalize;">${user.plan || 'basic'}</div>
+    <div class="form-group full" style="border-bottom:1px solid #f0f0f0;padding-bottom:12px;margin:8px 0;">
+      <h4 style="font-size:14px;font-weight:700;color:#333;">Alterar Senha (opcional)</h4>
     </div>
+    <div class="form-group">
+      <label for="acc-current-password">Senha atual</label>
+      <input type="password" id="acc-current-password" placeholder="Deixe em branco para manter">
+    </div>
+    <div class="form-group">
+      <label for="acc-new-password">Nova senha</label>
+      <input type="password" id="acc-new-password" placeholder="Mínimo 6 caracteres">
+    </div>
+    <div class="form-group full">
+      <button type="submit" class="btn-save">Salvar Dados</button>
+    </div>
+  </form>
+
+  <div style="margin-top:16px;padding:12px 16px;background:#f0f7ff;border:1px solid #cce5ff;border-radius:12px;font-size:13px;color:#0066cc;">
+    <strong>ℹ️ Sobre as notificações:</strong> Os alertas de <strong>totem offline</strong>, <strong>papel baixo</strong> e <strong>erro na impressora</strong> serão enviados automaticamente para o email cadastrado aqui.
   </div>
 </div>
 
@@ -801,6 +961,64 @@ document.getElementById('settingsForm').onsubmit = async function(e) {
   toast.style.display = 'block';
   setTimeout(() => toast.style.display = 'none', 2500);
 };
+
+document.getElementById('accountForm').onsubmit = async function(e) {
+  e.preventDefault();
+  const data = {
+    name: document.getElementById('acc-name').value,
+    email: document.getElementById('acc-email').value,
+    currentPassword: document.getElementById('acc-current-password').value,
+    newPassword: document.getElementById('acc-new-password').value,
+  };
+  const res = await fetch('/client/update-account', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(data)
+  });
+  const result = await res.json();
+  if (result.error) {
+    alert(result.error);
+    return;
+  }
+  // Limpar campos de senha
+  document.getElementById('acc-current-password').value = '';
+  document.getElementById('acc-new-password').value = '';
+  // Atualizar nome na navbar
+  const toast = document.getElementById('account-toast');
+  toast.textContent = 'Dados salvos com sucesso!';
+  toast.style.display = 'block';
+  setTimeout(() => toast.style.display = 'none', 2500);
+};
+
+async function testNotification() {
+  const email = document.getElementById('acc-email').value.trim();
+  if (!email) {
+    alert('Informe um email primeiro');
+    return;
+  }
+  const btn = document.getElementById('btn-test-email');
+  const status = document.getElementById('test-email-status');
+  btn.disabled = true;
+  btn.textContent = 'Enviando...';
+  status.innerHTML = '<span style="color:#888;">Enviando email de teste...</span>';
+  try {
+    const res = await fetch('/client/test-notification', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ email })
+    });
+    const data = await res.json();
+    if (data.error) {
+      status.innerHTML = '<span style="color:#ef4444;">❌ ' + data.error + '</span>';
+    } else {
+      status.innerHTML = '<span style="color:#16a34a;">✅ Email de teste enviado! Verifique sua caixa de entrada.</span>';
+    }
+  } catch (e) {
+    status.innerHTML = '<span style="color:#ef4444;">❌ Erro de rede</span>';
+  }
+  btn.disabled = false;
+  btn.textContent = 'Testar';
+}
 </script>`;
 }
 
