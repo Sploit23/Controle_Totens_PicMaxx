@@ -6,7 +6,8 @@ const { getUserByEmail, getUserById, getUsers, createUser, updateUser,
         getClientConfig, setClientConfig,
         createLicense, getLicensesByUser, getLicenseByToken, getAllLicenses, updateLicense,
         getLicenseByTotemId,
-        hashPassword, verifyPassword, updateTotemName } = require('../database');
+        hashPassword, verifyPassword, updateTotemName,
+        getLatestTelemetry, getLatestScreenshot } = require('../database');
 const { notifyTotem, notifyUserTotems } = require('../ws-manager');
 
 const sessions = new Map();
@@ -92,15 +93,17 @@ router.get('/', (req, res) => {
   } else if (page === 'monitoring') {
     pageTitle = 'Monitoramento';
     const stats = {};
+    const telemetry = {};
     let allTxs = [];
     for (const t of clientTotems) {
       const s = getStats(t.id);
       stats[t.id] = s;
+      telemetry[t.id] = getLatestTelemetry(t.id);
       allTxs.push(...getTransactions(100, t.id));
     }
     allTxs.sort((a, b) => b.created_at.localeCompare(a.created_at));
     allTxs.splice(100);
-    pageContent = monitoringPage(user, clientTotems, stats, allTxs);
+    pageContent = monitoringPage(user, clientTotems, stats, telemetry, allTxs);
   } else {
     // Kiosk list (default)
     pageContent = kioskListPage(user, clientTotems, config);
@@ -328,7 +331,7 @@ tr:hover td{background:#fafafa;}
 .totem-card .info strong{font-size:15px;}
 .totem-card .info .sub{font-size:12px;color:#888;margin-top:2px;}
 @media(max-width:700px){.form-grid{grid-template-columns:1fr;}.container{padding:16px;}.nav{padding:0 16px;overflow-x:auto;}}
-${activePage === 'monitoring' ? '.monitoring-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:16px;margin-bottom:24px;}.stat-card{background:#fff;border-radius:12px;padding:16px 20px;box-shadow:0 1px 4px rgba(0,0,0,.04);}.stat-card .label{font-size:11px;font-weight:600;color:#999;text-transform:uppercase;letter-spacing:.5px;}.stat-card .value{font-size:22px;font-weight:900;color:#1a1a1a;margin-top:2px;}' : ''}
+${activePage === 'monitoring' ? '.monitoring-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:16px;margin-bottom:24px;}.stat-card{background:#fff;border-radius:12px;padding:16px 20px;box-shadow:0 1px 4px rgba(0,0,0,.04);}.stat-card .label{font-size:11px;font-weight:600;color:#999;text-transform:uppercase;letter-spacing:.5px;}.stat-card .value{font-size:22px;font-weight:900;color:#1a1a1a;margin-top:2px;}.tel-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(420px,1fr));gap:16px;margin-bottom:24px;}.tel-card{background:#fff;border-radius:12px;padding:16px;box-shadow:0 2px 8px rgba(0,0,0,.06);border:1px solid #eee;}.tel-header{display:flex;align-items:center;gap:8px;margin-bottom:12px;padding-bottom:10px;border-bottom:1px solid #f0f0f0;}.tel-name{font-size:15px;font-weight:700;flex:1;}.tel-dot{width:10px;height:10px;border-radius:50%;flex-shrink:0;}.tel-online{font-size:12px;color:#888;}.tel-body{display:grid;grid-template-columns:200px 1fr;gap:16px;}.tel-screenshot{width:200px;height:150px;border-radius:8px;overflow:hidden;background:#f0f0f0;display:flex;align-items:center;justify-content:center;}.tel-screenshot img{width:100%;height:100%;object-fit:cover;}.tel-noimg{font-size:12px;color:#999;text-align:center;padding:8px;}.tel-info{display:flex;flex-direction:column;gap:10px;}.tel-gauges{display:flex;flex-direction:column;gap:6px;}.tel-gauge{display:flex;align-items:center;gap:8px;}.tel-glabel{font-size:12px;font-weight:600;color:#555;min-width:32px;}.tel-bar{flex:1;height:16px;background:#eee;border-radius:8px;overflow:hidden;}.tel-fill{height:100%;border-radius:8px;transition:width .5s,background .3s;min-width:4px;max-width:100%;}.tel-gvalue{font-size:13px;font-weight:700;min-width:44px;text-align:right;color:#333;}.tel-paper{display:flex;gap:16px;font-size:13px;color:#555;flex-wrap:wrap;}.tel-footer{display:flex;justify-content:space-between;align-items:center;margin-top:4px;font-size:12px;}.tel-err{color:#555;}.tel-time{color:#999;}.tel-card-loading{text-align:center;padding:40px;color:#999;}' : ''}
 </style>
 </head>
 <body>
@@ -799,7 +802,7 @@ document.getElementById('settingsForm').onsubmit = async function(e) {
 }
 
 // ─── MONITORING ────────────────────────────────────────
-function monitoringPage(user, clientTotems, stats, allTxs) {
+function monitoringPage(user, clientTotems, stats, telemetry, allTxs) {
   const methodLabels = { pix:'PIX', credit:'Crédito', debit:'Débito', test:'Teste', money:'Dinheiro', unknown:'—' };
 
   // Aggregate totals
@@ -825,6 +828,65 @@ function monitoringPage(user, clientTotems, stats, allTxs) {
         <div><span style="font-size:11px;color:#999;">Hoje</span><br><span style="font-weight:700;font-size:15px;">${s.todaySales?.count || 0}</span></div>
         <div><span style="font-size:11px;color:#999;">Total</span><br><span style="font-weight:700;font-size:15px;">${s.totalSales?.count || 0}</span></div>
         <div><span style="font-size:11px;color:#999;">Falhas</span><br><span style="font-weight:700;font-size:15px;color:#ef4444;">${s.failedCount?.count || 0}</span></div>
+      </div>
+    </div>`;
+  }).join('');
+
+  // ─── Telemetry cards (ao vivo) ───────────────────────
+  function statusColor(val) {
+    const n = parseFloat(val) || 0;
+    return n >= 90 ? '#ef4444' : n >= 70 ? '#f59e0b' : '#22c55e';
+  }
+  function paperStatus(val) {
+    const n = parseInt(val) || 0;
+    return n > 20 ? '✅' : n > 10 ? '⚠️' : n > 0 ? '🔴' : '⛔';
+  }
+
+  const telCards = clientTotems.map(t => {
+    const tel = telemetry[t.id] || {};
+    const online = t.last_seen && (Date.now() - new Date(t.last_seen+'Z').getTime()) < 180000;
+    const cpu = tel.cpu || '0';
+    const ram = tel.ram || '0';
+    const p10 = tel.paper_10x15 || '0';
+    const p20 = tel.paper_15x20 || '0';
+    const err = tel.printer_error || '';
+    const cpuColor = statusColor(cpu);
+    const ramColor = statusColor(ram);
+    const timeStr = tel.created_at ? new Date(tel.created_at+'Z').toLocaleString('pt-BR') : '—';
+    const errDisplay = err && err !== 'Sem erros' && err !== 'N/A' ? `⚠️ ${err}` : '✅ OK';
+
+    return `<div class="tel-card" id="tel-${t.id}" data-totem="${t.id}">
+      <div class="tel-header">
+        <div class="tel-name">${t.name || t.id}</div>
+        <span class="tel-dot" style="background:${online?'#22c55e':'#ef4444'}"></span>
+        <span class="tel-online">${online?'Online':'Offline'}</span>
+      </div>
+      <div class="tel-body">
+        <div class="tel-screenshot" id="scr-${t.id}">
+          <div class="tel-noimg">Carregando...</div>
+        </div>
+        <div class="tel-info">
+          <div class="tel-gauges">
+            <div class="tel-gauge">
+              <span class="tel-glabel">CPU</span>
+              <div class="tel-bar"><div class="tel-fill" style="width:${Math.min(parseFloat(cpu),100)}%;background:${cpuColor}"></div></div>
+              <span class="tel-gvalue" id="cpu-${t.id}">${cpu}%</span>
+            </div>
+            <div class="tel-gauge">
+              <span class="tel-glabel">RAM</span>
+              <div class="tel-bar"><div class="tel-fill" style="width:${Math.min(parseFloat(ram),100)}%;background:${ramColor}"></div></div>
+              <span class="tel-gvalue" id="ram-${t.id}">${ram}%</span>
+            </div>
+          </div>
+          <div class="tel-paper">
+            <span>📄 10×15: <strong id="p10-${t.id}">${p10}</strong> ${paperStatus(p10)}</span>
+            <span>15×20: <strong id="p20-${t.id}">${p20}</strong> ${paperStatus(p20)}</span>
+          </div>
+          <div class="tel-footer">
+            <span class="tel-err" id="err-${t.id}">${errDisplay}</span>
+            <span class="tel-time" id="time-${t.id}">🕐 ${timeStr}</span>
+          </div>
+        </div>
       </div>
     </div>`;
   }).join('');
@@ -868,11 +930,86 @@ ${clientTotems.length > 1 ? `
 <h3 style="font-size:14px;font-weight:700;margin-bottom:12px;">Por Totem</h3>
 <div class="monitoring-grid" style="margin-bottom:24px;">${perTotemCards}</div>` : ''}
 
+<h3 style="font-size:14px;font-weight:700;margin-bottom:12px;margin-top:24px;">📡 Ao Vivo</h3>
+<div id="telemetry-container" class="tel-grid">${telCards}</div>
+<div style="text-align:center;margin:12px 0;">
+  <button onclick="loadAllScreenshots()" style="padding:8px 20px;background:#d8232a;color:#fff;border:none;border-radius:8px;cursor:pointer;font-size:13px;font-weight:600;">Carregar Screenshots</button>
+  <span style="font-size:12px;color:#888;margin-left:12px;">Auto-refresh a cada 10s</span>
+</div>
+
 <div class="section">
   <h3>📋 Transações</h3>
   <table>
     <thead><tr><th>Totem</th><th>Data</th><th>Código</th><th>Itens</th><th>Valor</th><th>Status</th><th>Pagamento</th></tr></thead>
     <tbody>${txRows}</tbody>
   </table>
-</div>`;
+</div>
+
+<script>
+const TOTEM_IDS = ${JSON.stringify(clientTotems.map(t => t.id))};
+
+async function loadScreenshot(totemId) {
+  const scrDiv = document.getElementById('scr-' + totemId);
+  if (!scrDiv) return;
+  scrDiv.innerHTML = '<div class="tel-noimg">Carregando...</div>';
+  try {
+    const res = await fetch('/api/totem/telemetry/' + encodeURIComponent(totemId));
+    const data = await res.json();
+    if (data.success && data.screenshot) {
+      scrDiv.innerHTML = '<img src="data:image/jpeg;base64,' + data.screenshot + '" alt="Screenshot" onerror="this.parentElement.innerHTML=\'<div class=tel-noimg>Erro ao carregar</div>\'">';
+    } else {
+      scrDiv.innerHTML = '<div class="tel-noimg">Nenhuma screenshot</div>';
+    }
+  } catch (e) {
+    scrDiv.innerHTML = '<div class="tel-noimg">Erro de conexão</div>';
+  }
+}
+
+async function loadAllScreenshots() {
+  for (const id of TOTEM_IDS) {
+    await loadScreenshot(id);
+  }
+}
+
+async function refreshTelemetry() {
+  try {
+    for (const id of TOTEM_IDS) {
+      const res = await fetch('/api/totem/telemetry/' + encodeURIComponent(id));
+      const data = await res.json();
+      if (data.success && data.telemetry) {
+        const t = data.telemetry;
+        const cpuEl = document.getElementById('cpu-' + id);
+        const ramEl = document.getElementById('ram-' + id);
+        const p10El = document.getElementById('p10-' + id);
+        const p20El = document.getElementById('p20-' + id);
+        const errEl = document.getElementById('err-' + id);
+        const timeEl = document.getElementById('time-' + id);
+        if (cpuEl) cpuEl.textContent = (t.cpu || '0') + '%';
+        if (ramEl) ramEl.textContent = (t.ram || '0') + '%';
+        if (p10El) p10El.textContent = t.paper_10x15 || '0';
+        if (p20El) p20El.textContent = t.paper_15x20 || '0';
+        if (errEl) {
+          const e = t.printer_error || '';
+          errEl.textContent = (e && e !== 'Sem erros' && e !== 'N/A') ? '⚠️ ' + e : '✅ OK';
+        }
+        if (timeEl && t.created_at) {
+          timeEl.textContent = '🕐 ' + new Date(t.created_at + 'Z').toLocaleString('pt-BR');
+        }
+        // Update gauge bars
+        const cpuFill = cpuEl?.closest('.tel-card')?.querySelector('.tel-gauge:nth-child(1) .tel-fill');
+        const ramFill = ramEl?.closest('.tel-card')?.querySelector('.tel-gauge:nth-child(2) .tel-fill');
+        const cpuVal = Math.min(parseFloat(t.cpu) || 0, 100);
+        const ramVal = Math.min(parseFloat(t.ram) || 0, 100);
+        if (cpuFill) { cpuFill.style.width = cpuVal + '%'; cpuFill.style.background = cpuVal >= 90 ? '#ef4444' : cpuVal >= 70 ? '#f59e0b' : '#22c55e'; }
+        if (ramFill) { ramFill.style.width = ramVal + '%'; ramFill.style.background = ramVal >= 90 ? '#ef4444' : ramVal >= 70 ? '#f59e0b' : '#22c55e'; }
+      }
+    }
+  } catch (e) {
+    // silent
+  }
+}
+
+// Auto-refresh stats a cada 10s, screenshots carregadas manualmente
+setInterval(refreshTelemetry, 10000);
+</script>`;
 }

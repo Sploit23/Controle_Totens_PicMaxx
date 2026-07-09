@@ -2,7 +2,8 @@ const express = require('express');
 const { registerTotem, createTransaction, createFailedTransaction, getAllPrices,
         getLicenseByToken, bindLicenseToTotem, bindTotemToUser, getUserById,
         getTotem, getDB,
-        updateTotemConfig } = require('../database');
+        updateTotemConfig,
+        saveTelemetry, saveScreenshot, getLatestTelemetry, getLatestScreenshot } = require('../database');
 
 function log(rid, msg, data) {
   const ts = new Date().toISOString().replace('T', ' ').slice(0, 19);
@@ -126,6 +127,37 @@ router.post('/transaction-failed', (req, res) => {
     res.json({ success: true, transactionId: txId });
   } catch (e) {
     log(req.rid, `Erro ao registrar falha: ${e.message}`);
+    res.status(500).json({ success: false, error: e.message });
+  }
+});
+
+router.post('/telemetry', (req, res) => {
+  try {
+    const { totemId, cpu, ram, paper_10x15, paper_15x20, printer_error, printer_name, screenshot } = req.body;
+    if (!totemId) return res.status(400).json({ success: false, error: 'totemId obrigatorio' });
+
+    saveTelemetry(totemId, { cpu, ram, paper_10x15, paper_15x20, printer_error, printer_name });
+    if (screenshot) saveScreenshot(totemId, screenshot);
+
+    log(req.rid, `Telemetry: ${totemId} CPU:${cpu} RAM:${ram} Papel:${paper_10x15}/${paper_15x20}`);
+    res.json({ success: true });
+  } catch (e) {
+    log(req.rid, `Erro telemetry: ${e.message}`);
+    res.status(500).json({ success: false, error: e.message });
+  }
+});
+
+router.get('/telemetry/:totemId', (req, res) => {
+  try {
+    const telemetry = getLatestTelemetry(req.params.totemId);
+    const screenshot = getLatestScreenshot(req.params.totemId);
+    res.json({
+      success: true,
+      telemetry: telemetry || null,
+      screenshot: screenshot?.screenshot || null,
+      screenshot_updated: screenshot?.updated_at || null,
+    });
+  } catch (e) {
     res.status(500).json({ success: false, error: e.message });
   }
 });

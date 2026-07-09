@@ -82,6 +82,12 @@ function seedInitialUser() {
 
 seedInitialUser();
 
+// Limpeza de telemetria antiga a cada 30 min
+const { cleanupTelemetry } = require('./database');
+setInterval(() => {
+  try { cleanupTelemetry(); } catch (e) { /* ignore */ }
+}, 30 * 60 * 1000);
+
 const server = http.createServer(app);
 initWebSocket(server);
 

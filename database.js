@@ -89,6 +89,26 @@ function initDatabase() {
   try { db.exec(`ALTER TABLE totems ADD COLUMN user_id INTEGER`); } catch {}
   try { db.exec(`ALTER TABLE totems ADD COLUMN reported_config TEXT`); } catch {}
 
+  // Telemetry para monitoramento ao vivo
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS telemetry (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      totem_id TEXT NOT NULL,
+      cpu TEXT,
+      ram TEXT,
+      paper_10x15 TEXT,
+      paper_15x20 TEXT,
+      printer_error TEXT,
+      printer_name TEXT,
+      created_at TEXT DEFAULT (datetime('now'))
+    );
+    CREATE TABLE IF NOT EXISTS screenshots (
+      totem_id TEXT PRIMARY KEY,
+      screenshot TEXT,
+      updated_at TEXT DEFAULT (datetime('now'))
+    );
+  `);
+
   return db;
 }
 
@@ -322,6 +342,39 @@ module.exports = {
 
   getTotemsByUser(userId) {
     return db.prepare(`SELECT * FROM totems WHERE user_id = ? ORDER BY name`).all(userId);
+  },
+
+  // ---- Telemetry ----
+  saveTelemetry(totemId, { cpu, ram, paper_10x15, paper_15x20, printer_error, printer_name }) {
+    db.prepare(`INSERT INTO telemetry (totem_id, cpu, ram, paper_10x15, paper_15x20, printer_error, printer_name) VALUES (?, ?, ?, ?, ?, ?, ?)`)
+      .run(totemId, cpu || '0', ram || '0', paper_10x15 || '0', paper_15x20 || '0', printer_error || '', printer_name || '');
+  },
+
+  saveScreenshot(totemId, screenshotBase64) {
+    db.prepare(`INSERT OR REPLACE INTO screenshots (totem_id, screenshot, updated_at) VALUES (?, ?, datetime('now'))`)
+      .run(totemId, screenshotBase64);
+  },
+
+  getLatestTelemetry(totemId) {
+    return db.prepare(`SELECT * FROM telemetry WHERE totem_id = ? ORDER BY created_at DESC LIMIT 1`).get(totemId) || null;
+  },
+
+  getLatestScreenshot(totemId) {
+    return db.prepare(`SELECT screenshot, updated_at FROM screenshots WHERE totem_id = ?`).get(totemId) || null;
+  },
+
+  getTelemetryHistory(totemId, limit = 60) {
+    return db.prepare(`SELECT * FROM telemetry WHERE totem_id = ? ORDER BY created_at ASC LIMIT ?`).all(totemId, limit);
+  },
+
+  cleanupTelemetry() {
+    // Keep only last 50 records per totem, delete older
+    const totems = db.prepare(`SELECT DISTINCT totem_id FROM telemetry`).all();
+    for (const t of totems) {
+      db.prepare(`DELETE FROM telemetry WHERE id NOT IN (SELECT id FROM telemetry WHERE totem_id = ? ORDER BY created_at DESC LIMIT 50) AND totem_id = ?`).run(t.totem_id, t.totem_id);
+    }
+    // Delete screenshots with no recent telemetry (older than 24h)
+    db.prepare(`DELETE FROM screenshots WHERE updated_at < datetime('now', '-1 day')`).run();
   },
 
   // ---- Client Config ----
