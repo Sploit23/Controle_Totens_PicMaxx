@@ -1009,6 +1009,11 @@ footer{text-align:center;padding:1rem;border-top:var(--glass-border);color:var(-
 </div>
 <script>
 var TOTEM_IDS = ${idsJson};
+console.log('[Ao Vivo] TOTEM_IDS:', TOTEM_IDS);
+var DEBUG = document.createElement('div');
+DEBUG.id='debug-info';DEBUG.style.cssText='font-size:11px;color:#888;padding:4px 1rem;text-align:center;border-top:1px solid rgba(255,255,255,.05)';
+document.body.appendChild(DEBUG);
+function updateDebug(){DEBUG.textContent='Totens: '+TOTEM_IDS.length+' ('+TOTEM_IDS.join(', ')+') | Telemetria: '+Object.keys(totemData).length+' cards'}
 var PAPER_HIGH = 100, PAPER_MEDIUM = 70, PAPER_LOW = 30;
 var OFFLINE_TIMEOUT = 30;
 var totemData = {};
@@ -1056,6 +1061,7 @@ function updateStatusCounts(){
   criticalCount.textContent=criticals;
   document.getElementById('warning-status').style.display=warnings>0?'':'none';
   document.getElementById('critical-status').style.display=criticals>0?'':'none';
+  updateDebug();
 }
 
 function updateServerStatus(online){
@@ -1066,10 +1072,12 @@ function updateServerStatus(online){
 function updateTotemCard(id){renderFullTotem(id)}
 
 function initData(data){
+  console.log('[Ao Vivo] initData keys:', Object.keys(data));
   for(var k in data){totemData[k]=data[k]}
   for(var k in totemData){renderFullTotem(k)}
   updateStatusCounts();
   updateServerStatus(true);
+  updateDebug();
 }
 
 var initialData = ${initialDataJson};
@@ -1096,7 +1104,8 @@ async function poll(){
       }
     }
     if(changed){updateStatusCounts();updateServerStatus(true)}
-  }catch(e){console.error('[Ao Vivo]',e);updateServerStatus(false)}
+    updateDebug();
+  }catch(e){console.error('[Ao Vivo]',e);updateServerStatus(false);updateDebug()}
 }
 
 setInterval(poll,10000);
