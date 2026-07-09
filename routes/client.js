@@ -1028,7 +1028,7 @@ DEBUG.id='debug-info';DEBUG.style.cssText='font-size:11px;color:#888;padding:4px
 document.body.appendChild(DEBUG);
 function updateDebug(){DEBUG.textContent='Totens: '+TOTEM_IDS.length+' ('+TOTEM_IDS.join(', ')+') | Telemetria: '+Object.keys(totemData).length+' cards'}
 var PAPER_HIGH = 100, PAPER_MEDIUM = 70, PAPER_LOW = 30;
-var OFFLINE_TIMEOUT = 30;
+var OFFLINE_TIMEOUT = 90;
 var totemData = {};
 var totalCount = document.getElementById('total-count');
 var warningCount = document.getElementById('warning-count');
