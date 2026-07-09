@@ -7,6 +7,7 @@ const { getUserByEmail, getUserById, getUsers, createUser, updateUser,
         createLicense, getLicensesByUser, getLicenseByToken, getAllLicenses, updateLicense,
         getLicenseByTotemId,
         hashPassword, verifyPassword, updateTotemName,
+        getLatestScreenshot,
         getLatestTelemetryForTotems } = require('../database');
 const { notifyTotem, notifyUserTotems } = require('../ws-manager');
 
