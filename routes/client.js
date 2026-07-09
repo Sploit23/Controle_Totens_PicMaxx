@@ -8,7 +8,8 @@ const { getUserByEmail, getUserById, getUsers, createUser, updateUser,
         getLicenseByTotemId,
         hashPassword, verifyPassword, updateTotemName,
         getLatestScreenshot,
-        getLatestTelemetryForTotems } = require('../database');
+        getLatestTelemetryForTotems,
+        createCoupon, getCouponsByUser, getCouponStats, toggleCouponActive, getCouponUsageCount } = require('../database');
 const { notifyTotem, notifyUserTotems } = require('../ws-manager');
 
 const sessions = new Map();
@@ -103,6 +104,9 @@ router.get('/', (req, res) => {
     allTxs.sort((a, b) => b.created_at.localeCompare(a.created_at));
     allTxs.splice(100);
     pageContent = monitoringPage(user, clientTotems, stats, allTxs);
+  } else if (page === 'coupons') {
+    pageTitle = '🎟️ Cupons';
+    pageContent = couponsPage(user, clientTotems);
   } else if (page === 'live') {
     pageTitle = '📡 Ao Vivo';
     pageContent = livePage(user, clientTotems);
@@ -393,6 +397,7 @@ function layoutPage(user, activePage, pageTitle, pageContent) {
     { id: 'licenses',    label: 'Licenças' },
     { id: 'settings',    label: 'Cadastros' },
     { id: 'monitoring',  label: 'Monitoramento' },
+    { id: 'coupons',     label: '🎟️ Cupons' },
     { id: 'live',        label: '📡 Ao Vivo' },
   ];
 
@@ -1074,6 +1079,187 @@ ${clientTotems.length > 1 ? `
 </div>
 
 `;
+}
+
+// ─── API: CRIAR CUPOM ────────────────────────────────────
+router.post('/coupons/create', (req, res) => {
+  const user = getUserById(req.session.userId);
+  if (!user) return res.status(401).json({ error: 'Não autorizado' });
+
+  const { code, description, discountType, discountValue, sizeAllowed, expiresAt, maxUses, maxUsesPerCpf, totemIds } = req.body;
+  if (!code || !code.trim()) return res.status(400).json({ error: 'Código do cupom obrigatório' });
+
+  try {
+    const id = createCoupon(user.id, {
+      code: code.trim().toUpperCase(),
+      description: description || '',
+      discountType: discountType || 'free_photo',
+      discountValue: parseFloat(discountValue) || 100,
+      sizeAllowed: sizeAllowed || 'both',
+      expiresAt: expiresAt || null,
+      maxUses: parseInt(maxUses) || null,
+      maxUsesPerCpf: parseInt(maxUsesPerCpf) || 1,
+      totemIds: totemIds || [],
+    });
+    log(req.rid, `Cupom criado: ${code.trim().toUpperCase()} (usuario ${user.id})`);
+    res.json({ success: true, id });
+  } catch (e) {
+    if (e.message && e.message.includes('UNIQUE')) {
+      return res.status(400).json({ error: 'Já existe um cupom com este código' });
+    }
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// ─── API: ATIVAR/DESATIVAR CUPOM ─────────────────────────
+router.post('/coupons/toggle/:id', (req, res) => {
+  const user = getUserById(req.session.userId);
+  if (!user) return res.status(401).json({ error: 'Não autorizado' });
+  toggleCouponActive(parseInt(req.params.id));
+  log(req.rid, `Cupom ${req.params.id} toggled (usuario ${user.id})`);
+  res.json({ success: true });
+});
+
+// ══════════════════════════════════════════════════════════
+//  COUPONS PAGE
+// ══════════════════════════════════════════════════════════
+function couponsPage(user, clientTotems) {
+  const coupons = getCouponsByUser(user.id);
+
+  const couponRows = coupons.map(c => {
+    const used = getCouponUsageCount(c.id);
+    const maxStr = c.max_uses ? `/${c.max_uses}` : '/∞';
+    const typeLabel = c.discount_type === 'free_photo' ? '🆓 Grátis' : '½ ' + c.discount_value + '%';
+    const sizeLabel = { '10x15': '10×15', '15x20': '15×20', 'both': 'Ambos' }[c.size_allowed] || c.size_allowed;
+    const expired = c.expires_at && new Date(c.expires_at) < new Date();
+    const statusDot = c.active && !expired ? '🟢' : '🔴';
+    return `<tr>
+      <td><code style="background:#f0f0f0;padding:4px 8px;border-radius:6px;font-size:13px;">${c.code}</code></td>
+      <td style="max-width:200px;overflow:hidden;text-overflow:ellipsis;">${c.description || '—'}</td>
+      <td>${typeLabel}</td>
+      <td>${sizeLabel}</td>
+      <td>${c.expires_at ? new Date(c.expires_at+'Z').toLocaleDateString('pt-BR') : '—'}</td>
+      <td><strong>${used}${maxStr}</strong></td>
+      <td>${statusDot} ${expired ? 'Expirado' : c.active ? 'Ativo' : 'Inativo'}</td>
+      <td><button onclick="toggleCoupon(${c.id})" style="padding:6px 14px;border:1px solid #ccc;border-radius:6px;background:transparent;cursor:pointer;font-size:12px;">${c.active ? 'Desativar' : 'Ativar'}</button></td>
+    </tr>`;
+  }).join('') || '<tr><td colspan="8" style="text-align:center;color:#999;padding:30px;">Nenhum cupom criado ainda.</td></tr>';
+
+  const totemOptions = clientTotems.map(t =>
+    `<label style="display:flex;align-items:center;gap:6px;padding:4px 0;"><input type="checkbox" class="totem-check" value="${t.id}"> ${t.name || t.id}</label>`
+  ).join('');
+
+  return `
+<div class="section">
+  <h3>➕ Criar Novo Cupom</h3>
+  <p style="font-size:13px;color:#888;margin-bottom:16px;">Crie cupons de desconto para divulgar seu totem. O cliente digita o código no kiosk junto com o CPF.</p>
+
+  <div id="coupon-toast" class="toast">Cupom criado com sucesso!</div>
+
+  <form id="couponForm" class="form-grid" style="margin-top:8px;">
+    <div class="form-group">
+      <label>Código do Cupom *</label>
+      <input type="text" id="cup-code" placeholder="Ex: COCACOLA" style="text-transform:uppercase;font-weight:700;letter-spacing:2px;" required>
+      <div class="hint">O cliente digitará este código no kiosk</div>
+    </div>
+    <div class="form-group">
+      <label>Descrição</label>
+      <input type="text" id="cup-desc" placeholder="Ex: Parceria Coca-Cola">
+    </div>
+    <div class="form-group">
+      <label>Tipo de Desconto</label>
+      <select id="cup-type">
+        <option value="free_photo">🎁 Foto Grátis</option>
+        <option value="percentage">½ Porcentagem (%)</option>
+      </select>
+    </div>
+    <div class="form-group" id="cup-value-group">
+      <label>Valor do Desconto</label>
+      <input type="number" id="cup-value" value="100" min="1" max="100">
+      <div class="hint">100% = foto grátis. Se for %, o valor percentual.</div>
+    </div>
+    <div class="form-group">
+      <label>Tamanho Permitido</label>
+      <select id="cup-size">
+        <option value="both">10×15 e 15×20</option>
+        <option value="10x15">Só 10×15</option>
+        <option value="15x20">Só 15×20</option>
+      </select>
+    </div>
+    <div class="form-group">
+      <label>Validade</label>
+      <input type="date" id="cup-expires">
+      <div class="hint">Deixe em branco para não expirar</div>
+    </div>
+    <div class="form-group">
+      <label>Usos Máximos</label>
+      <input type="number" id="cup-max" placeholder="0 = ilimitado" min="0">
+    </div>
+    <div class="form-group">
+      <label>Usos por CPF</label>
+      <input type="number" id="cup-cpf" value="1" min="1">
+    </div>
+    <div class="form-group full">
+      <label>Totens (deixe vazio = todos os seus totens)</label>
+      <div style="display:flex;flex-wrap:wrap;gap:8px;padding:8px 0;">
+        ${totemOptions || '<span style="color:#999;">Nenhum totem vinculado</span>'}
+      </div>
+    </div>
+    <div class="form-group full">
+      <button type="submit" class="btn-save">Criar Cupom</button>
+    </div>
+  </form>
+</div>
+
+<div class="section">
+  <h3>📋 Cupons</h3>
+  <table>
+    <thead><tr><th>Código</th><th>Descrição</th><th>Tipo</th><th>Tamanho</th><th>Expira</th><th>Usos</th><th>Status</th><th></th></tr></thead>
+    <tbody>${couponRows}</tbody>
+  </table>
+</div>
+
+<script>
+document.getElementById('cup-type').onchange = function() {
+  const grp = document.getElementById('cup-value-group');
+  grp.style.display = this.value === 'free_photo' ? 'none' : '';
+  if (this.value === 'free_photo') document.getElementById('cup-value').value = 100;
+};
+
+document.getElementById('couponForm').onsubmit = async function(e) {
+  e.preventDefault();
+  const totemIds = Array.from(document.querySelectorAll('.totem-check:checked')).map(cb => cb.value);
+  const data = {
+    code: document.getElementById('cup-code').value,
+    description: document.getElementById('cup-desc').value,
+    discountType: document.getElementById('cup-type').value,
+    discountValue: document.getElementById('cup-value').value,
+    sizeAllowed: document.getElementById('cup-size').value,
+    expiresAt: document.getElementById('cup-expires').value,
+    maxUses: document.getElementById('cup-max').value || null,
+    maxUsesPerCpf: document.getElementById('cup-cpf').value || 1,
+    totemIds,
+  };
+  const res = await fetch('/client/coupons/create', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(data)
+  });
+  const result = await res.json();
+  if (result.error) {
+    alert(result.error);
+    return;
+  }
+  const toast = document.getElementById('coupon-toast');
+  toast.style.display = 'block';
+  setTimeout(() => { toast.style.display = 'none'; location.reload(); }, 1500);
+};
+
+async function toggleCoupon(id) {
+  await fetch('/client/coupons/toggle/' + id, { method: 'POST' });
+  location.reload();
+}
+<\/script>`;
 }
 
 // ══════════════════════════════════════════════════════════

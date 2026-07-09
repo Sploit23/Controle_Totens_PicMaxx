@@ -4,7 +4,8 @@ const { registerTotem, createTransaction, createFailedTransaction, getAllPrices,
         getTotem, getDB,
         updateTotemConfig,
         saveTelemetry, saveScreenshot, getLatestTelemetry, getLatestScreenshot,
-        getLatestTelemetryForTotems } = require('../database');
+        getLatestTelemetryForTotems,
+        getCouponUsageCount, getCouponUsageCountByCpf, getCouponTotemIds, useCoupon } = require('../database');
 
 function log(rid, msg, data) {
   const ts = new Date().toISOString().replace('T', ' ').slice(0, 19);
@@ -176,6 +177,82 @@ router.get('/telemetry/:totemId', (req, res) => {
       screenshot_updated: screenshot?.updated_at || null,
     });
   } catch (e) {
+    res.status(500).json({ success: false, error: e.message });
+  }
+});
+
+// ─── COUPON VALIDATE ─────────────────────────────────────
+router.post('/coupon/validate', (req, res) => {
+  try {
+    const { code, cpf, totemId } = req.body;
+    if (!code) return res.json({ valid: false, error: 'Código do cupom obrigatório' });
+    if (!cpf) return res.json({ valid: false, error: 'CPF obrigatório' });
+
+    const db = getDB();
+    const coupon = db.prepare(`SELECT * FROM coupons WHERE code = ?`).get(code.toUpperCase());
+    if (!coupon) return res.json({ valid: false, error: 'Cupom não encontrado' });
+    if (!coupon.active) return res.json({ valid: false, error: 'Cupom inativo' });
+
+    // Verificar validade
+    if (coupon.expires_at && new Date(coupon.expires_at) < new Date())
+      return res.json({ valid: false, error: 'Cupom expirado' });
+
+    // Verificar limite total de usos
+    if (coupon.max_uses) {
+      const used = getCouponUsageCount(coupon.id);
+      if (used >= coupon.max_uses)
+        return res.json({ valid: false, error: 'Cupom esgotado' });
+    }
+
+    // Verificar limite por CPF
+    const usedByCpf = getCouponUsageCountByCpf(coupon.id, cpf);
+    if (usedByCpf >= (coupon.max_uses_per_cpf || 1))
+      return res.json({ valid: false, error: 'CPF já atingiu o limite de usos deste cupom' });
+
+    // Verificar se cupom é do dono do totem
+    if (totemId) {
+      const totem = db.prepare(`SELECT user_id FROM totems WHERE id = ?`).get(totemId);
+      if (totem && totem.user_id !== coupon.user_id)
+        return res.json({ valid: false, error: 'Cupom não disponível para este totem' });
+
+      // Verificar restrição de totens específicos
+      const restrictedTotems = getCouponTotemIds(coupon.id);
+      if (restrictedTotems.length > 0 && !restrictedTotems.includes(totemId))
+        return res.json({ valid: false, error: 'Cupom não disponível para este totem' });
+    }
+
+    log(req.rid, `Cupom validado: ${code} (CPF: ${cpf})`);
+    res.json({
+      valid: true,
+      couponId: coupon.id,
+      code: coupon.code,
+      description: coupon.description,
+      discountType: coupon.discount_type,
+      discountValue: coupon.discount_value,
+      sizeAllowed: coupon.size_allowed,
+    });
+  } catch (e) {
+    log(req.rid, `Erro validar cupom: ${e.message}`);
+    res.status(500).json({ valid: false, error: e.message });
+  }
+});
+
+// ─── COUPON USE ─────────────────────────────────────────
+router.post('/coupon/use', (req, res) => {
+  try {
+    const { couponId, cpf, totemId, transactionId, photoSize } = req.body;
+    if (!couponId || !cpf) return res.status(400).json({ success: false, error: 'couponId e cpf obrigatórios' });
+
+    const db = getDB();
+    const coupon = db.prepare(`SELECT * FROM coupons WHERE id = ?`).get(couponId);
+    if (!coupon) return res.status(404).json({ success: false, error: 'Cupom não encontrado' });
+    if (!coupon.active) return res.json({ success: false, error: 'Cupom inativo' });
+
+    useCoupon(couponId, cpf, totemId || null, transactionId || null, photoSize || null);
+    log(req.rid, `Cupom usado: ${coupon.code} (CPF: ${cpf}, totem: ${totemId})`);
+    res.json({ success: true });
+  } catch (e) {
+    log(req.rid, `Erro usar cupom: ${e.message}`);
     res.status(500).json({ success: false, error: e.message });
   }
 });

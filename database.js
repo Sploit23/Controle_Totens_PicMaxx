@@ -88,6 +88,8 @@ function initDatabase() {
   try { db.exec(`ALTER TABLE transactions ADD COLUMN error_reason TEXT`); } catch {}
   try { db.exec(`ALTER TABLE totems ADD COLUMN user_id INTEGER`); } catch {}
   try { db.exec(`ALTER TABLE totems ADD COLUMN reported_config TEXT`); } catch {}
+  try { db.exec(`ALTER TABLE transactions ADD COLUMN coupon_code TEXT`); } catch {}
+  try { db.exec(`ALTER TABLE transactions ADD COLUMN coupon_photo_size TEXT`); } catch {}
 
   // Telemetry para monitoramento ao vivo
   db.exec(`
@@ -106,6 +108,38 @@ function initDatabase() {
       totem_id TEXT PRIMARY KEY,
       screenshot TEXT,
       updated_at TEXT DEFAULT (datetime('now'))
+    );
+    CREATE TABLE IF NOT EXISTS coupons (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      user_id INTEGER NOT NULL,
+      code TEXT UNIQUE NOT NULL,
+      description TEXT DEFAULT '',
+      discount_type TEXT DEFAULT 'free_photo',
+      discount_value REAL DEFAULT 100,
+      size_allowed TEXT DEFAULT 'both',
+      expires_at TEXT,
+      max_uses INTEGER,
+      max_uses_per_cpf INTEGER DEFAULT 1,
+      active INTEGER DEFAULT 1,
+      created_at TEXT DEFAULT (datetime('now')),
+      FOREIGN KEY (user_id) REFERENCES users(id)
+    );
+    CREATE TABLE IF NOT EXISTS coupon_totems (
+      coupon_id INTEGER NOT NULL,
+      totem_id TEXT NOT NULL,
+      PRIMARY KEY (coupon_id, totem_id),
+      FOREIGN KEY (coupon_id) REFERENCES coupons(id),
+      FOREIGN KEY (totem_id) REFERENCES totems(id)
+    );
+    CREATE TABLE IF NOT EXISTS coupon_usages (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      coupon_id INTEGER NOT NULL,
+      cpf TEXT NOT NULL,
+      totem_id TEXT,
+      transaction_id TEXT,
+      photo_size TEXT,
+      used_at TEXT DEFAULT (datetime('now')),
+      FOREIGN KEY (coupon_id) REFERENCES coupons(id)
     );
     CREATE TABLE IF NOT EXISTS notification_log (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -393,6 +427,58 @@ module.exports = {
     }
     // Delete screenshots with no recent telemetry (older than 24h)
     db.prepare(`DELETE FROM screenshots WHERE updated_at < datetime('now', '-1 day')`).run();
+  },
+
+  // ---- Coupons ----
+  createCoupon(userId, { code, description, discountType, discountValue, sizeAllowed, expiresAt, maxUses, maxUsesPerCpf, totemIds }) {
+    const result = db.prepare(`
+      INSERT INTO coupons (user_id, code, description, discount_type, discount_value, size_allowed, expires_at, max_uses, max_uses_per_cpf)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `).run(userId, code.toUpperCase(), description || '', discountType || 'free_photo', discountValue || 100, sizeAllowed || 'both', expiresAt || null, maxUses || null, maxUsesPerCpf || 1);
+    const couponId = result.lastInsertRowid;
+    if (totemIds && totemIds.length > 0) {
+      const stmt = db.prepare(`INSERT INTO coupon_totems (coupon_id, totem_id) VALUES (?, ?)`);
+      for (const tid of totemIds) stmt.run(couponId, tid);
+    }
+    return couponId;
+  },
+
+  getCouponsByUser(userId) {
+    return db.prepare(`SELECT * FROM coupons WHERE user_id = ? ORDER BY created_at DESC`).all(userId);
+  },
+
+  getCouponByCode(code) {
+    return db.prepare(`SELECT * FROM coupons WHERE code = ?`).get(code.toUpperCase());
+  },
+
+  getCouponTotemIds(couponId) {
+    return db.prepare(`SELECT totem_id FROM coupon_totems WHERE coupon_id = ?`).all(couponId).map(r => r.totem_id);
+  },
+
+  getCouponUsageCount(couponId) {
+    const r = db.prepare(`SELECT COUNT(*) as count FROM coupon_usages WHERE coupon_id = ?`).get(couponId);
+    return r ? r.count : 0;
+  },
+
+  getCouponUsageCountByCpf(couponId, cpf) {
+    const r = db.prepare(`SELECT COUNT(*) as count FROM coupon_usages WHERE coupon_id = ? AND cpf = ?`).get(couponId, cpf);
+    return r ? r.count : 0;
+  },
+
+  useCoupon(couponId, cpf, totemId, transactionId, photoSize) {
+    db.prepare(`INSERT INTO coupon_usages (coupon_id, cpf, totem_id, transaction_id, photo_size) VALUES (?, ?, ?, ?, ?)`).run(couponId, cpf, totemId, transactionId, photoSize);
+  },
+
+  toggleCouponActive(couponId) {
+    const c = db.prepare(`SELECT active FROM coupons WHERE id = ?`).get(couponId);
+    if (c) db.prepare(`UPDATE coupons SET active = ? WHERE id = ?`).run(c.active ? 0 : 1, couponId);
+  },
+
+  getCouponStats(couponId) {
+    const coupon = db.prepare(`SELECT * FROM coupons WHERE id = ?`).get(couponId);
+    if (!coupon) return null;
+    const totalUses = db.prepare(`SELECT COUNT(*) as count FROM coupon_usages WHERE coupon_id = ?`).get(couponId);
+    return { ...coupon, totalUses: totalUses?.count || 0 };
   },
 
   // ---- Notifications ----
