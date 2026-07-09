@@ -367,6 +367,17 @@ module.exports = {
     return db.prepare(`SELECT * FROM telemetry WHERE totem_id = ? ORDER BY created_at ASC LIMIT ?`).all(totemId, limit);
   },
 
+  getLatestTelemetryForTotems(totemIds) {
+    if (!totemIds || totemIds.length === 0) return {};
+    const placeholders = totemIds.map(() => '?').join(',');
+    const rows = db.prepare(`SELECT t.* FROM telemetry t INNER JOIN (SELECT totem_id, MAX(created_at) as max_time FROM telemetry WHERE totem_id IN (${placeholders}) GROUP BY totem_id) latest ON t.totem_id = latest.totem_id AND t.created_at = latest.max_time`).all(...totemIds);
+    const result = {};
+    for (const row of rows) result[row.totem_id] = row;
+    // Preencher com null para totems sem telemetria
+    for (const id of totemIds) { if (!result[id]) result[id] = { totem_id: id, cpu: '0', ram: '0', paper_10x15: '0', paper_15x20: '0', printer_error: '', printer_name: '', created_at: null }; }
+    return result;
+  },
+
   cleanupTelemetry() {
     // Keep only last 50 records per totem, delete older
     const totems = db.prepare(`SELECT DISTINCT totem_id FROM telemetry`).all();

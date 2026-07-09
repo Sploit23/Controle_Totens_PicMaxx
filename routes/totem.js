@@ -3,7 +3,8 @@ const { registerTotem, createTransaction, createFailedTransaction, getAllPrices,
         getLicenseByToken, bindLicenseToTotem, bindTotemToUser, getUserById,
         getTotem, getDB,
         updateTotemConfig,
-        saveTelemetry, saveScreenshot, getLatestTelemetry, getLatestScreenshot } = require('../database');
+        saveTelemetry, saveScreenshot, getLatestTelemetry, getLatestScreenshot,
+        getLatestTelemetryForTotems } = require('../database');
 
 function log(rid, msg, data) {
   const ts = new Date().toISOString().replace('T', ' ').slice(0, 19);
@@ -143,6 +144,23 @@ router.post('/telemetry', (req, res) => {
     res.json({ success: true });
   } catch (e) {
     log(req.rid, `Erro telemetry: ${e.message}`);
+    res.status(500).json({ success: false, error: e.message });
+  }
+});
+
+router.get('/telemetry', (req, res) => {
+  try {
+    const { ids } = req.query;
+    if (!ids) return res.json({ success: true, telemetry: {}, screenshots: {} });
+    const totemIds = ids.split(',').map(s => s.trim()).filter(Boolean);
+    const telemetry = getLatestTelemetryForTotems(totemIds);
+    const screenshots = {};
+    for (const id of totemIds) {
+      const s = getLatestScreenshot(id);
+      if (s) screenshots[id] = s.screenshot;
+    }
+    res.json({ success: true, telemetry, screenshots });
+  } catch (e) {
     res.status(500).json({ success: false, error: e.message });
   }
 });

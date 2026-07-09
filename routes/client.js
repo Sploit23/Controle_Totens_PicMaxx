@@ -7,7 +7,8 @@ const { getUserByEmail, getUserById, getUsers, createUser, updateUser,
         createLicense, getLicensesByUser, getLicenseByToken, getAllLicenses, updateLicense,
         getLicenseByTotemId,
         hashPassword, verifyPassword, updateTotemName,
-        getLatestTelemetry, getLatestScreenshot } = require('../database');
+        getLatestTelemetry, getLatestScreenshot,
+        getLatestTelemetryForTotems } = require('../database');
 const { notifyTotem, notifyUserTotems } = require('../ws-manager');
 
 const sessions = new Map();
@@ -104,6 +105,9 @@ router.get('/', (req, res) => {
     allTxs.sort((a, b) => b.created_at.localeCompare(a.created_at));
     allTxs.splice(100);
     pageContent = monitoringPage(user, clientTotems, stats, telemetry, allTxs);
+  } else if (page === 'live') {
+    pageTitle = '📡 Ao Vivo';
+    pageContent = livePage(user, clientTotems);
   } else {
     // Kiosk list (default)
     pageContent = kioskListPage(user, clientTotems, config);
@@ -263,6 +267,7 @@ function layoutPage(user, activePage, pageTitle, pageContent) {
     { id: 'licenses',    label: 'Licenças' },
     { id: 'settings',    label: 'Cadastros' },
     { id: 'monitoring',  label: 'Monitoramento' },
+    { id: 'live',        label: '📡 Ao Vivo' },
   ];
 
   const navTabs = tabs.map(t =>
@@ -1011,5 +1016,118 @@ async function refreshTelemetry() {
 
 // Auto-refresh stats a cada 10s, screenshots carregadas manualmente
 setInterval(refreshTelemetry, 10000);
+</script>`;
+}
+
+// ══════════════════════════════════════════════════════════
+//  LIVE (dashboard estilo Python — dark theme, ao vivo)
+// ══════════════════════════════════════════════════════════
+function livePage(user, clientTotems) {
+  const totemIds = clientTotems.map(t => t.id);
+  const idsJson = JSON.stringify(totemIds);
+
+  return `
+<style>
+.live-container{max-width:1400px;margin:0 auto;width:100%;}
+.live-header{display:flex;justify-content:space-between;align-items:center;margin-bottom:20px;padding:16px 20px;background:linear-gradient(135deg,#1a1a24,#252535);border-radius:12px;border:1px solid #3a3a4a;}
+.live-logo{display:flex;align-items:center;gap:10px;font-size:1.3rem;font-weight:700;background:linear-gradient(135deg,#6c5ce7,#8175ff);-webkit-background-clip:text;background-clip:text;color:transparent;}
+.live-status{display:flex;gap:12px;}
+.live-pill{background:rgba(30,30,45,.5);backdrop-filter:blur(12px);border-radius:50px;padding:6px 16px;font-size:.85rem;font-weight:500;border:1px solid rgba(255,255,255,.1);color:#f0f0ff;display:flex;align-items:center;gap:6px;}
+.live-pill.live-warning{color:#ffaa00;background:rgba(255,170,0,.15);}
+.live-pill.live-critical{color:#ff3d71;background:rgba(255,61,113,.15);}
+.live-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(300px,1fr));gap:16px;margin-bottom:20px;}
+.live-card{background:rgba(30,30,45,.5);backdrop-filter:blur(12px);border-radius:12px;border:1px solid rgba(255,255,255,.1);box-shadow:0 8px 24px rgba(0,0,0,.3);overflow:hidden;display:flex;flex-direction:column;height:480px;transition:.3s;}
+.live-card:hover{transform:translateY(-4px);box-shadow:0 12px 40px rgba(0,0,0,.5);}
+.live-card-id{font-size:1.1rem;font-weight:700;text-align:center;padding:12px;background:rgba(0,0,0,.25);color:#f0f0ff;}
+.live-stats{display:flex;justify-content:space-around;padding:10px 12px;background:rgba(0,0,0,.1);}
+.live-stat{text-align:center;padding:4px;}
+.live-stat>div:first-child{font-size:.8rem;color:#c0c0e0;margin-bottom:4px;}
+.live-stat-value{font-size:1.1rem;font-weight:600;}
+.live-cpu{color:#6c5ce7;}
+.live-paper-indicator{font-size:.75rem;margin-top:2px;}
+.live-paper-good{color:#00e676;}
+.live-paper-warning{color:#ffaa00;}
+.live-paper-critical{color:#ff3d71;}
+.live-screenshot{flex:1;display:flex;justify-content:center;align-items:center;background:#000;overflow:hidden;}
+.live-screenshot img{width:auto;height:100%;object-fit:contain;}
+.live-noimg{color:#666;font-size:.85rem;text-align:center;padding:20px;}
+.live-timestamp{text-align:center;padding:8px;font-size:.8rem;color:#c0c0e0;background:rgba(0,0,0,.1);}
+.live-footer{text-align:center;padding:16px;color:#c0c0e0;font-size:.85rem;border-top:1px solid rgba(255,255,255,.1);background:rgba(30,30,45,.3);backdrop-filter:blur(12px);border-radius:12px;}
+.live-dot{width:8px;height:8px;border-radius:50%;display:inline-block;}
+.live-dot.online{background-color:#00e676;}
+.live-dot.offline{background-color:#ff3d71;}
+@keyframes liveFade{from{opacity:0;transform:translateY(16px);}to{opacity:1;transform:translateY(0);}}
+.live-grid>*{animation:liveFade .5s ease-out both;}
+</style>
+
+<div class="live-container">
+  <div class="live-header">
+    <div class="live-logo">🖥️ Ao Vivo</div>
+    <div class="live-status">
+      <span class="live-pill"><span id="lv-total">0</span> Totens</span>
+      <span class="live-pill live-warning" id="lv-warn-pill" style="display:none"><span id="lv-warn">0</span> Alertas</span>
+      <span class="live-pill live-critical" id="lv-crit-pill" style="display:none"><span id="lv-crit">0</span> Críticos</span>
+    </div>
+  </div>
+
+  <div id="lv-grid" class="live-grid"></div>
+
+  <div class="live-footer">
+    <span id="lv-server">🔌 Servidor: <span class="live-dot online"></span> Online</span>
+  </div>
+</div>
+
+<script>
+(function(){
+const TOTEM_IDS = ${idsJson};
+const TOTEM_NAMES = ${JSON.stringify(Object.fromEntries(clientTotems.map(t => [t.id, t.name || t.id])))};
+
+function statusColor(v){const n=parseFloat(v)||0;return n>=90?'#ff3d71':n>=70?'#ffaa00':'#6c5ce7';}
+
+function paperStatus(v){const n=parseInt(v)||0;if(n>20)return '<span class="live-paper-good">✔ Suficiente</span>';if(n>10)return '<span class="live-paper-warning">⚠ Atenção</span>';if(n>0)return '<span class="live-paper-warning">⚠ Pouco papel</span>';return '<span class="live-paper-critical">✖ Sem papel</span>';}
+
+function renderCard(id, tel, scr){
+  const cpu=tel.cpu||'0', ram=tel.ram||'0', p10=tel.paper_10x15||'0', p20=tel.paper_15x20||'0';
+  const timeStr=tel.created_at?new Date(tel.created_at+'Z').toLocaleString('pt-BR'):'—';
+  const scrHtml=scr?'<img src="data:image/jpeg;base64,'+scr+'" alt="Screen" onerror="this.parentElement.innerHTML=\'<div class=live-noimg>Erro</div>\'">':'<div class="live-noimg">Sem screenshot</div>';
+  return '<div class="live-card">'+
+    '<div class="live-card-id">'+TOTEM_NAMES[id]||id+'</div>'+
+    '<div class="live-stats">'+
+      '<div class="live-stat"><div>CPU</div><div class="live-stat-value live-cpu">'+cpu+'%</div></div>'+
+      '<div class="live-stat"><div>10×15</div><div class="live-stat-value">'+p10+'</div><div class="live-paper-indicator">'+paperStatus(p10)+'</div></div>'+
+      '<div class="live-stat"><div>15×20</div><div class="live-stat-value">'+p20+'</div><div class="live-paper-indicator">'+paperStatus(p20)+'</div></div>'+
+    '</div>'+
+    '<div class="live-screenshot">'+scrHtml+'</div>'+
+    '<div class="live-timestamp">🕐 '+timeStr+'</div>'+
+  '</div>';
+}
+
+async function refresh(){
+  try{
+    const res=await fetch('/api/totem/telemetry?ids='+TOTEM_IDS.join(','));
+    const data=await res.json();
+    if(!data.success) return;
+    const grid=document.getElementById('lv-grid');
+    if(!grid) return;
+    let html='', warnings=0, criticals=0;
+    for(const id of TOTEM_IDS){
+      const tel=data.telemetry[id]||{};
+      const scr=data.screenshots[id]||null;
+      const cpu=parseFloat(tel.cpu)||0;
+      if(cpu>=90) criticals++; else if(cpu>=70) warnings++;
+      html+=renderCard(id, tel, scr);
+    }
+    grid.innerHTML=html;
+    document.getElementById('lv-total').textContent=TOTEM_IDS.length;
+    const w=document.getElementById('lv-warn'); if(w) w.textContent=warnings;
+    const wp=document.getElementById('lv-warn-pill'); if(wp) wp.style.display=warnings>0?'':'none';
+    const c=document.getElementById('lv-crit'); if(c) c.textContent=criticals;
+    const cp=document.getElementById('lv-crit-pill'); if(cp) cp.style.display=criticals>0?'':'none';
+  }catch(e){/*silent*/}
+}
+
+refresh();
+setInterval(refresh, 10000);
+})();
 </script>`;
 }
