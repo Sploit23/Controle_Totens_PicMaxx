@@ -893,126 +893,122 @@ function livePage(user, clientTotems) {
 
   function paperStatus(v) {
     const n = parseInt(v) || 0;
-    return n > 20 ? '<span class="live-paper-good">✔ Suficiente</span>' : n > 10 ? '<span class="live-paper-warning">⚠ Atenção</span>' : n > 0 ? '<span class="live-paper-warning">⚠ Pouco papel</span>' : '<span class="live-paper-critical">✖ Sem papel</span>';
+    if (n > 20) return '<span class="paper-good">✔ Suficiente</span>';
+    if (n > 10) return '<span class="paper-warning">⚠ Atenção</span>';
+    if (n > 0) return '<span class="paper-warning">⚠ Pouco papel</span>';
+    return '<span class="paper-critical">✖ Sem papel</span>';
   }
 
   let warnings = 0, criticals = 0;
   const initialCards = clientTotems.map(t => {
     const tel = telemetry[t.id] || {};
-    const cpu = parseFloat(tel.cpu) || 0;
-    if (cpu >= 90) criticals++;
-    else if (cpu >= 70) warnings++;
     const p10 = tel.paper_10x15 || '0';
     const p20 = tel.paper_15x20 || '0';
+    const pn10 = parseInt(p10) || 0;
+    const pn20 = parseInt(p20) || 0;
+    if (pn10 === 0 || pn20 === 0) criticals++;
+    else if (pn10 < 10 || pn20 < 10) warnings++;
     const timeStr = tel.created_at ? new Date(tel.created_at+'Z').toLocaleString('pt-BR') : '—';
-    return `<div class="live-card" id="lc-${t.id}">
-      <div class="live-card-id">${t.name || t.id}</div>
-      <div class="live-stats">
-        <div class="live-stat"><div>CPU</div><div class="live-stat-value live-cpu" data-stat="cpu">${cpu}%</div></div>
-        <div class="live-stat"><div>10×15</div><div class="live-stat-value" data-stat="p10">${p10}</div><div class="live-paper-indicator" data-stat="p10i">${paperStatus(p10)}</div></div>
-        <div class="live-stat"><div>15×20</div><div class="live-stat-value" data-stat="p20">${p20}</div><div class="live-paper-indicator" data-stat="p20i">${paperStatus(p20)}</div></div>
+    return `<div class="totem-card" id="tc-${t.id}">
+      <div class="totem-id">${t.name || t.id}</div>
+      <div class="resource-stats">
+        <div class="resource-stat"><div>Papel 10x15</div><div class="stat-value paper-value" data-stat="p10">${p10}</div><div class="paper-indicator" data-stat="p10i">${paperStatus(p10)}</div></div>
+        <div class="resource-stat"><div>Papel 15x20</div><div class="stat-value paper-value" data-stat="p20">${p20}</div><div class="paper-indicator" data-stat="p20i">${paperStatus(p20)}</div></div>
       </div>
-      <div class="live-screenshot" id="lvscr-${t.id}"><div class="live-noimg">Carregando...</div></div>
-      <div class="live-timestamp">🕐 ${timeStr}</div>
+      <div class="screenshot-container" id="scr-${t.id}"><div style="color:#666;font-size:.85rem;text-align:center;padding:20px;">Carregando...</div></div>
+      <div class="timestamp">🕐 ${timeStr}</div>
     </div>`;
   }).join('');
 
-  return `
-<style>
-.live-container{max-width:1400px;margin:0 auto;width:100%;}
-.live-header{display:flex;justify-content:space-between;align-items:center;margin-bottom:20px;padding:16px 20px;background:linear-gradient(135deg,#1a1a24,#252535);border-radius:12px;border:1px solid #3a3a4a;}
-.live-logo{display:flex;align-items:center;gap:10px;font-size:1.3rem;font-weight:700;background:linear-gradient(135deg,#6c5ce7,#8175ff);-webkit-background-clip:text;background-clip:text;color:transparent;}
-.live-status{display:flex;gap:12px;}
-.live-pill{background:rgba(30,30,45,.5);backdrop-filter:blur(12px);border-radius:50px;padding:6px 16px;font-size:.85rem;font-weight:500;border:1px solid rgba(255,255,255,.1);color:#f0f0ff;display:flex;align-items:center;gap:6px;}
-.live-pill.live-warning{color:#ffaa00;background:rgba(255,170,0,.15);}
-.live-pill.live-critical{color:#ff3d71;background:rgba(255,61,113,.15);}
-.live-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(300px,1fr));gap:16px;margin-bottom:20px;}
-.live-card{background:rgba(30,30,45,.5);backdrop-filter:blur(12px);border-radius:12px;border:1px solid rgba(255,255,255,.1);box-shadow:0 8px 24px rgba(0,0,0,.3);overflow:hidden;display:flex;flex-direction:column;height:480px;transition:.3s;}
-.live-card:hover{transform:translateY(-4px);box-shadow:0 12px 40px rgba(0,0,0,.5);}
-.live-card-id{font-size:1.1rem;font-weight:700;text-align:center;padding:12px;background:rgba(0,0,0,.25);color:#f0f0ff;}
-.live-stats{display:flex;justify-content:space-around;padding:10px 12px;background:rgba(0,0,0,.1);}
-.live-stat{text-align:center;padding:4px;}
-.live-stat>div:first-child{font-size:.8rem;color:#c0c0e0;margin-bottom:4px;}
-.live-stat-value{font-size:1.1rem;font-weight:600;}
-.live-cpu{color:#6c5ce7;}
-.live-paper-indicator{font-size:.75rem;margin-top:2px;}
-.live-paper-good{color:#00e676;}
-.live-paper-warning{color:#ffaa00;}
-.live-paper-critical{color:#ff3d71;}
-.live-screenshot{flex:1;display:flex;justify-content:center;align-items:center;background:#000;overflow:hidden;}
-.live-screenshot img{width:auto;height:100%;object-fit:contain;}
-.live-noimg{color:#666;font-size:.85rem;text-align:center;padding:20px;}
-.live-timestamp{text-align:center;padding:8px;font-size:.8rem;color:#c0c0e0;background:rgba(0,0,0,.1);}
-.live-footer{text-align:center;padding:16px;color:#c0c0e0;font-size:.85rem;border-top:1px solid rgba(255,255,255,.1);background:rgba(30,30,45,.3);backdrop-filter:blur(12px);border-radius:12px;}
-.live-dot{width:8px;height:8px;border-radius:50%;display:inline-block;}
-.live-dot.online{background-color:#00e676;}
-.live-dot.offline{background-color:#ff3d71;}
-@keyframes liveFade{from{opacity:0;transform:translateY(16px);}to{opacity:1;transform:translateY(0);}}
-.live-grid>*{animation:liveFade .5s ease-out both;}
+  return `<style>
+:root{
+  --bg-primary:#0f0f13;--bg-secondary:#1a1a24;--bg-tertiary:#252535;
+  --text-primary:#f0f0ff;--text-secondary:#c0c0e0;
+  --accent-primary:#6c5ce7;--accent-secondary:#8175ff;
+  --accent-gradient:linear-gradient(135deg,#6c5ce7,#8175ff);
+  --success:#00e676;--warning:#ffaa00;--danger:#ff3d71;
+  --border-color:#3a3a4a;--shadow-color:rgba(0,0,0,.6);
+  --card-shadow:0 8px 24px rgba(0,0,0,.3);
+  --glass-effect:rgba(30,30,45,.5);--glass-border:1px solid rgba(255,255,255,.1);--glass-blur:blur(12px);
+}
+.live-wrapper{max-width:1400px;margin:0 auto;width:100%;}
+.live-head{display:flex;justify-content:space-between;align-items:center;margin-bottom:1.5rem;padding:1rem 2rem;background:var(--glass-effect);backdrop-filter:var(--glass-blur);border-radius:12px;border:var(--glass-border);box-shadow:0 4px 30px var(--shadow-color);}
+.live-head .logo{display:flex;align-items:center;gap:.75rem;background:var(--accent-gradient);-webkit-background-clip:text;background-clip:text;color:transparent;font-size:1.3rem;font-weight:700;}
+.live-head .sys-status{display:flex;gap:1rem;}
+.live-head .status-pill{background:var(--glass-effect);backdrop-filter:var(--glass-blur);border-radius:50px;padding:.3rem 1rem;font-size:.85rem;font-weight:500;border:var(--glass-border);display:flex;align-items:center;gap:.5rem;color:var(--text-primary);}
+.live-head .status-pill.warning{color:var(--warning);background:rgba(255,170,0,.15);}
+.live-head .status-pill.critical{color:var(--danger);background:rgba(255,61,113,.15);}
+.grid-view{display:grid;grid-template-columns:repeat(auto-fill,minmax(280px,1fr));gap:1.5rem;margin-bottom:1.5rem;animation:fadeIn .8s ease-out;}
+@keyframes fadeIn{from{opacity:0;transform:translateY(20px);}to{opacity:1;transform:translateY(0);}}
+.totem-card{background:var(--glass-effect);backdrop-filter:var(--glass-blur);border-radius:12px;border:var(--glass-border);box-shadow:var(--card-shadow);overflow:hidden;display:flex;flex-direction:column;height:500px;transition:all .4s cubic-bezier(.25,.8,.25,1);}
+.totem-card:hover{transform:translateY(-4px);box-shadow:0 12px 40px rgba(0,0,0,.5);}
+.totem-id{font-size:1.2rem;font-weight:700;text-align:center;padding:.8rem 0;background:rgba(0,0,0,.2);color:var(--text-primary);}
+.resource-stats{display:flex;justify-content:space-around;padding:.8rem;background:rgba(0,0,0,.1);}
+.resource-stat{text-align:center;padding:.5rem;}
+.resource-stat>div:first-child{font-size:.9rem;margin-bottom:.3rem;color:var(--text-secondary);}
+.stat-value{font-size:1.1rem;font-weight:600;color:var(--text-primary);}
+.paper-indicator{font-size:.8rem;margin-top:.25rem;}
+.paper-good{color:var(--success);}.paper-warning{color:var(--warning);}.paper-critical{color:var(--danger);}
+.screenshot-container{flex-grow:1;display:flex;justify-content:center;align-items:center;background:#000;overflow:hidden;}
+.screenshot-container img{width:auto;height:100%;object-fit:contain;}
+.timestamp{text-align:center;padding:.5rem;font-size:.8rem;color:var(--text-secondary);}
+.live-foot{text-align:center;padding:1rem;border-top:var(--glass-border);color:var(--text-secondary);font-size:.85rem;background:var(--glass-effect);backdrop-filter:var(--glass-blur);border-radius:12px;}
+.live-foot .status-dot{width:8px;height:8px;border-radius:50%;display:inline-block;}
+.live-foot .status-dot.online{background-color:var(--success);}
+.live-foot .status-dot.offline{background-color:var(--danger);}
 </style>
-
-<div class="live-container">
-  <div class="live-header">
-    <div class="live-logo">🖥️ Ao Vivo</div>
-    <div class="live-status">
-      <span class="live-pill"><span id="lv-total">${clientTotems.length}</span> Totens</span>
-      <span class="live-pill live-warning" id="lv-warn-pill" style="display:${warnings > 0 ? '' : 'none'}"><span id="lv-warn">${warnings}</span> Alertas</span>
-      <span class="live-pill live-critical" id="lv-crit-pill" style="display:${criticals > 0 ? '' : 'none'}"><span id="lv-crit">${criticals}</span> Críticos</span>
+<div class="live-wrapper">
+  <div class="live-head">
+    <div class="logo">🖥️ Monitor de Totens</div>
+    <div class="sys-status">
+      <span class="status-pill"><span id="tot-count">${clientTotems.length}</span> Totens</span>
+      <span class="status-pill warning" id="warn-pill" style="display:${warnings > 0 ? '' : 'none'}"><span id="warn-count">${warnings}</span> Alertas</span>
+      <span class="status-pill critical" id="crit-pill" style="display:${criticals > 0 ? '' : 'none'}"><span id="crit-count">${criticals}</span> Críticos</span>
     </div>
   </div>
-
-  <div id="lv-grid" class="live-grid">${initialCards}</div>
-
-  <div class="live-footer">
-    <span id="lv-server">🔌 Servidor: <span class="live-dot online"></span> Online</span>
-  </div>
+  <div id="totems-container" class="grid-view">${initialCards}</div>
+  <div class="live-foot">Painel de Monitoramento \u00a9 2025 | <span id="srv-status">Servidor: <span class="status-dot online"></span> Online</span></div>
 </div>
-
 <script>
 (function(){
-const TOTEM_IDS = ${JSON.stringify(totemIds)};
-
-function paperStatus(v){var n=parseInt(v)||0;if(n>20)return '<span class=\\"live-paper-good\\">✔ Suficiente</span>';if(n>10)return '<span class=\\"live-paper-warning\\">⚠ Atenção</span>';if(n>0)return '<span class=\\"live-paper-warning\\">⚠ Pouco papel</span>';return '<span class=\\"live-paper-critical\\">✖ Sem papel</span>';}
-
+var TOTEM_IDS = ${JSON.stringify(totemIds)};
+function paperStatus(v){var n=parseInt(v)||0;if(n>20)return'<span class=\\"paper-good\\">\✔ Suficiente</span>';if(n>10)return'<span class=\\"paper-warning\\">⚠ Atenção</span>';if(n>0)return'<span class=\\"paper-warning\\">⚠ Pouco papel</span>';return'<span class=\\"paper-critical\\">\✖ Sem papel</span>';}
 async function refresh(){
   try{
-    var ids = TOTEM_IDS.map(function(id){return encodeURIComponent(id)}).join(',');
-    var res = await fetch('/api/totem/telemetry?ids=' + ids);
-    var data = await res.json();
+    var ids=TOTEM_IDS.map(function(id){return encodeURIComponent(id)}).join(',');
+    var res=await fetch('/api/totem/telemetry?ids='+ids);
+    var data=await res.json();
     if(!data.success) return;
-    var warnings = 0, criticals = 0;
-    for(var i = 0; i < TOTEM_IDS.length; i++){
-      var id = TOTEM_IDS[i];
-      var tel = data.telemetry[id] || {};
-      var cpu = parseFloat(tel.cpu) || 0;
-      if(cpu >= 90) criticals++; else if(cpu >= 70) warnings++;
-      var p10 = tel.paper_10x15 || '0';
-      var p20 = tel.paper_15x20 || '0';
-      var timeStr = tel.created_at ? new Date(tel.created_at + 'Z').toLocaleString('pt-BR') : '—';
-      var card = document.getElementById('lc-' + id);
+    var warnings=0,criticals=0;
+    for(var i=0;i<TOTEM_IDS.length;i++){
+      var id=TOTEM_IDS[i];
+      var tel=data.telemetry[id]||{};
+      var p10=tel.paper_10x15||'0';
+      var p20=tel.paper_15x20||'0';
+      var pn10=parseInt(p10)||0;
+      var pn20=parseInt(p20)||0;
+      if(pn10===0||pn20===0) criticals++; else if(pn10<10||pn20<10) warnings++;
+      var timeStr=tel.created_at?new Date(tel.created_at+'Z').toLocaleString('pt-BR'):'\u2014';
+      var card=document.getElementById('tc-'+id);
       if(card){
-        card.querySelector('[data-stat=\\"cpu\\"]').textContent = cpu + '%';
-        card.querySelector('[data-stat=\\"p10\\"]').textContent = p10;
-        card.querySelector('[data-stat=\\"p20\\"]').textContent = p20;
-        card.querySelector('[data-stat=\\"p10i\\"]').innerHTML = paperStatus(p10);
-        card.querySelector('[data-stat=\\"p20i\\"]').innerHTML = paperStatus(p20);
-        card.querySelector('.live-timestamp').textContent = '🕐 ' + timeStr;
+        card.querySelector('[data-stat="p10"]').textContent=p10;
+        card.querySelector('[data-stat="p20"]').textContent=p20;
+        card.querySelector('[data-stat="p10i"]').innerHTML=paperStatus(p10);
+        card.querySelector('[data-stat="p20i"]').innerHTML=paperStatus(p20);
+        card.querySelector('.timestamp').textContent='\uD83D\uDD50 '+timeStr;
       }
-      var scrDiv = document.getElementById('lvscr-' + id);
-      if(scrDiv && data.screenshots[id]){
-        scrDiv.innerHTML = '<img src=\\"data:image/jpeg;base64,' + data.screenshots[id] + '\\" alt=\\"Screen\\" onerror=\\"this.parentElement.innerHTML=\\'<div class=live-noimg>Erro</div>\\'\\">';
+      var scrDiv=document.getElementById('scr-'+id);
+      if(scrDiv&&data.screenshots[id]){
+        scrDiv.innerHTML='<img src="data:image/jpeg;base64,'+data.screenshots[id]+'" alt="Screen" onerror="this.parentElement.innerHTML=\'<div style=color:#666;font-size:.85rem;text-align:center;padding:20px;>Erro</div>\'">';
       }
     }
-    document.getElementById('lv-total').textContent = TOTEM_IDS.length;
-    var wp = document.getElementById('lv-warn-pill');
-    if(wp){ wp.style.display = warnings > 0 ? '' : 'none'; document.getElementById('lv-warn').textContent = warnings; }
-    var cp = document.getElementById('lv-crit-pill');
-    if(cp){ cp.style.display = criticals > 0 ? '' : 'none'; document.getElementById('lv-crit').textContent = criticals; }
-  }catch(e){ console.error('[Ao Vivo]', e); }
+    document.getElementById('tot-count').textContent=TOTEM_IDS.length;
+    var wp=document.getElementById('warn-pill');if(wp){wp.style.display=warnings>0?'':'none';document.getElementById('warn-count').textContent=warnings;}
+    var cp=document.getElementById('crit-pill');if(cp){cp.style.display=criticals>0?'':'none';document.getElementById('crit-count').textContent=criticals;}
+  }catch(e){console.error('[Ao Vivo]',e);}
 }
-
 refresh();
-setInterval(refresh, 10000);
+setInterval(refresh,10000);
 })();
-</script>`;
+<\/script>`;
 }
