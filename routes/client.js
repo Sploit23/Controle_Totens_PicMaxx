@@ -260,10 +260,12 @@ router.post('/test-notification', async (req, res) => {
       return res.status(500).json({ error: 'SMTP nao configurado no servidor' });
     }
 
+    const smtpPort = port || 587;
+    const useSecure = smtpPort === 465;
     const transporter = nodemailer.createTransport({
       host,
-      port: 465,
-      secure: true,
+      port: smtpPort,
+      secure: useSecure,
       auth: { user: smtpUser, pass: smtpPass },
       tls: { rejectUnauthorized: false },
     });
