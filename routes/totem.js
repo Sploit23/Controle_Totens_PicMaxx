@@ -229,6 +229,7 @@ router.post('/coupon/validate', (req, res) => {
       description: coupon.description,
       discountType: coupon.discount_type,
       discountValue: coupon.discount_value,
+      quantity: coupon.quantity || 1,
       sizeAllowed: coupon.size_allowed,
     });
   } catch (e) {

@@ -90,6 +90,7 @@ function initDatabase() {
   try { db.exec(`ALTER TABLE totems ADD COLUMN reported_config TEXT`); } catch {}
   try { db.exec(`ALTER TABLE transactions ADD COLUMN coupon_code TEXT`); } catch {}
   try { db.exec(`ALTER TABLE transactions ADD COLUMN coupon_photo_size TEXT`); } catch {}
+  try { db.exec(`ALTER TABLE coupons ADD COLUMN quantity INTEGER DEFAULT 1`); } catch {}
 
   // Telemetry para monitoramento ao vivo
   db.exec(`
@@ -430,11 +431,11 @@ module.exports = {
   },
 
   // ---- Coupons ----
-  createCoupon(userId, { code, description, discountType, discountValue, sizeAllowed, expiresAt, maxUses, maxUsesPerCpf, totemIds }) {
+  createCoupon(userId, { code, description, discountType, discountValue, quantity, sizeAllowed, expiresAt, maxUses, maxUsesPerCpf, totemIds }) {
     const result = db.prepare(`
-      INSERT INTO coupons (user_id, code, description, discount_type, discount_value, size_allowed, expires_at, max_uses, max_uses_per_cpf)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-    `).run(userId, code.toUpperCase(), description || '', discountType || 'free_photo', discountValue || 100, sizeAllowed || 'both', expiresAt || null, maxUses || null, maxUsesPerCpf || 1);
+      INSERT INTO coupons (user_id, code, description, discount_type, discount_value, quantity, size_allowed, expires_at, max_uses, max_uses_per_cpf)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `).run(userId, code.toUpperCase(), description || '', discountType || 'free_photo', discountValue || 100, quantity || 1, sizeAllowed || 'both', expiresAt || null, maxUses || null, maxUsesPerCpf || 1);
     const couponId = result.lastInsertRowid;
     if (totemIds && totemIds.length > 0) {
       const stmt = db.prepare(`INSERT INTO coupon_totems (coupon_id, totem_id) VALUES (?, ?)`);

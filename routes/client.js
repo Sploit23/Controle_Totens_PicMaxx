@@ -1086,7 +1086,7 @@ router.post('/coupons/create', (req, res) => {
   const user = getUserById(req.session.userId);
   if (!user) return res.status(401).json({ error: 'Não autorizado' });
 
-  const { code, description, discountType, discountValue, sizeAllowed, expiresAt, maxUses, maxUsesPerCpf, totemIds } = req.body;
+  const { code, description, discountType, discountValue, quantity, sizeAllowed, expiresAt, maxUses, maxUsesPerCpf, totemIds } = req.body;
   if (!code || !code.trim()) return res.status(400).json({ error: 'Código do cupom obrigatório' });
 
   try {
@@ -1095,6 +1095,7 @@ router.post('/coupons/create', (req, res) => {
       description: description || '',
       discountType: discountType || 'free_photo',
       discountValue: parseFloat(discountValue) || 100,
+      quantity: parseInt(quantity) || 1,
       sizeAllowed: sizeAllowed || 'both',
       expiresAt: expiresAt || null,
       maxUses: parseInt(maxUses) || null,
@@ -1130,13 +1131,14 @@ function couponsPage(user, clientTotems) {
     const used = getCouponUsageCount(c.id);
     const maxStr = c.max_uses ? `/${c.max_uses}` : '/∞';
     const typeLabel = c.discount_type === 'free_photo' ? '🆓 Grátis' : '½ ' + c.discount_value + '%';
+    const qtyLabel = c.quantity > 1 ? ` ×${c.quantity}` : '';
     const sizeLabel = { '10x15': '10×15', '15x20': '15×20', 'both': 'Ambos' }[c.size_allowed] || c.size_allowed;
     const expired = c.expires_at && new Date(c.expires_at) < new Date();
     const statusDot = c.active && !expired ? '🟢' : '🔴';
     return `<tr>
       <td><code style="background:#f0f0f0;padding:4px 8px;border-radius:6px;font-size:13px;">${c.code}</code></td>
       <td style="max-width:200px;overflow:hidden;text-overflow:ellipsis;">${c.description || '—'}</td>
-      <td>${typeLabel}</td>
+      <td>${typeLabel}${qtyLabel}</td>
       <td>${sizeLabel}</td>
       <td>${c.expires_at ? new Date(c.expires_at+'Z').toLocaleDateString('pt-BR') : '—'}</td>
       <td><strong>${used}${maxStr}</strong></td>
@@ -1187,6 +1189,11 @@ function couponsPage(user, clientTotems) {
       </select>
     </div>
     <div class="form-group">
+      <label>Quantidade de Fotos</label>
+      <input type="number" id="cup-qty" value="1" min="1" max="99">
+      <div class="hint">Quantas fotos o cupom cobre (ex: 2 fotos grátis)</div>
+    </div>
+    <div class="form-group">
       <label>Validade</label>
       <input type="date" id="cup-expires">
       <div class="hint">Deixe em branco para não expirar</div>
@@ -1234,6 +1241,7 @@ document.getElementById('couponForm').onsubmit = async function(e) {
     description: document.getElementById('cup-desc').value,
     discountType: document.getElementById('cup-type').value,
     discountValue: document.getElementById('cup-value').value,
+    quantity: document.getElementById('cup-qty').value || 1,
     sizeAllowed: document.getElementById('cup-size').value,
     expiresAt: document.getElementById('cup-expires').value,
     maxUses: document.getElementById('cup-max').value || null,
