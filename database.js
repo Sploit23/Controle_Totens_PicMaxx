@@ -117,6 +117,7 @@ function initDatabase() {
       description TEXT DEFAULT '',
       discount_type TEXT DEFAULT 'free_photo',
       discount_value REAL DEFAULT 100,
+      quantity INTEGER DEFAULT 1,
       size_allowed TEXT DEFAULT 'both',
       expires_at TEXT,
       max_uses INTEGER,
