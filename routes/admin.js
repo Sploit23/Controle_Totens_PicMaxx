@@ -1,8 +1,8 @@
 const express = require('express');
 const crypto = require('crypto');
 const { getTotems, getUsers, getUserById, createUser, updateUser, deleteUser,
-        getAllLicenses, getLicensesByUser, createLicense, updateLicense, deleteLicense,
-        getStats, getTotemsByUser, unbindTotem, hashPassword, verifyPassword } = require('../database');
+        getAllLicenses, createLicense, updateLicense, deleteLicense,
+        getStats, hashPassword, verifyPassword } = require('../database');
 
 const ADMIN_USER = process.env.ADMIN_USER || 'admin';
 const ADMIN_PASS = process.env.ADMIN_PASS || '123456';
@@ -161,20 +161,6 @@ router.post('/license/:id/delete', (req, res) => {
   deleteLicense(id);
   log(null, `Licenca #${id} excluida via admin`);
   res.redirect('/admin/licencas?success=Licenca+excluida+com+sucesso');
-});
-
-// ---- Totens ----
-router.get('/totens', (req, res) => {
-  const totems = getTotems();
-  const users = getUsers();
-  res.send(totensPage({ totems, users }));
-});
-
-router.post('/totem/:id/unbind', (req, res) => {
-  const id = req.params.id;
-  unbindTotem(id);
-  log(null, `Totem ${id} desvinculado via admin`);
-  res.redirect('/admin/totens?success=Totem+desvinculado+com+sucesso');
 });
 
 // =============================================================================
@@ -470,7 +456,6 @@ function sidebarHTML(active) {
     { href: '/admin', icon: '&#9632;', label: 'Dashboard', id: 'dashboard' },
     { href: '/admin/clientes', icon: '&#9787;', label: 'Clientes', id: 'clientes' },
     { href: '/admin/licencas', icon: '&#9830;', label: 'Licencas', id: 'licencas' },
-    { href: '/admin/totens', icon: '&#9881;', label: 'Totens', id: 'totens' },
   ];
   return `
   <aside class="sidebar" id="sidebar">
@@ -883,64 +868,6 @@ window.confirmDeleteLic = function(id, token){
   openModal('modalDeleteLic');
 };
 </script>
-</body>
-</html>`;
-}
-
-function totemsPage(data) {
-  const { totems, users } = data;
-  return `<!DOCTYPE html>
-<html lang="pt-BR">
-<head>
-<meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
-<link rel="preconnect" href="https://fonts.googleapis.com">
-<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
-<title>Totens - Controle Maxx</title>
-<style>${CSS}</style>
-</head>
-<body>
-${sidebarHTML('totens')}
-<div class="main">
-  ${topbarHTML('Totens')}
-  <div class="content">
-    <div class="section">
-      <div class="section-header">
-        <h2>Todos os totems <span class="count">(${totems.length})</span></h2>
-        <div class="search-box">
-          <span class="search-icon">&#128269;</span>
-          <input type="text" id="searchTotens" placeholder="Buscar totem..." oninput="filterTable('searchTotens','tableTotens')">
-        </div>
-      </div>
-      <div class="table-wrap">
-        <table id="tableTotens">
-          <thead><tr><th>ID</th><th>Nome</th><th>Dono</th><th>Ultimo sinal</th><th>Status</th><th>Acoes</th></tr></thead>
-          <tbody>${totems.map(t => {
-            const owner = users.find(u => u.id === t.user_id);
-            const isOnline = t.last_seen && ((Date.now() - new Date(t.last_seen+'Z').getTime()) / 1000) < 180;
-            return `<tr>
-              <td class="cell-mono">${t.id}</td>
-              <td><strong>${t.name || t.id}</strong></td>
-              <td>${owner ? `${owner.name} <span style="color:var(--text-secondary);font-size:12px">(${owner.email})</span>` : '<span style="color:var(--text-secondary)">Nao vinculado</span>'}</td>
-              <td style="font-size:13px;color:var(--text-secondary)">${t.last_seen ? new Date(t.last_seen+'Z').toLocaleString('pt-BR') : 'Nunca'}</td>
-              <td><span class="badge ${isOnline ? 'badge-ok' : 'badge-fail'}">${isOnline ? 'Online' : 'Offline'}</span></td>
-              <td>
-                <div class="actions-cell">
-                  ${owner ? `<form method="POST" action="/admin/totem/${t.id}/unbind" style="display:inline">
-                    <button class="btn-icon" title="Desvincular do dono" onclick="return confirm('Desvincular totem ${t.id} de ${owner.name}?')">&#10005;</button>
-                  </form>` : ''}
-                </div>
-              </td>
-            </tr>`;
-          }).join('') || '<tr><td colspan="6" class="empty"><div class="empty-icon">&#9881;</div>Nenhum totem registrado</td></tr>'}
-          </tbody>
-        </table>
-      </div>
-    </div>
-  </div>
-</div>
-<div id="toast" class="toast"></div>
-${getThemeScript()}
 </body>
 </html>`;
 }
