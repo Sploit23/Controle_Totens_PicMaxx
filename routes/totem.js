@@ -1,6 +1,6 @@
 const express = require('express');
 const { registerTotem, createTransaction, createFailedTransaction, getAllPrices,
-        getLicenseByToken, bindLicenseToTotem, bindTotemToUser, getUserById,
+        getLicenseByToken, getLicenseByTotemId, bindLicenseToTotem, bindTotemToUser, getUserById,
         getTotem, getDB,
         updateTotemConfig,
         saveTelemetry, saveScreenshot, getLatestTelemetry, getLatestScreenshot,
@@ -36,6 +36,16 @@ function getExtraConfig(totemId) {
     combo_enabled: getVal('combo_enabled') || '1',
     sizes_enabled: getVal('sizes_enabled') || 'both',
   };
+}
+
+function requireLicense(req, res, next) {
+  const totemId = req.body.totemId || req.params.totemId;
+  if (!totemId) return next(); // sem totemId? Deixa o handler decidir
+
+  const license = getLicenseByTotemId(totemId);
+  if (!license) return res.status(403).json({ success: false, error: 'Totem sem licenca vinculada' });
+  if (!license.active) return res.status(403).json({ success: false, error: 'Licenca desativada — entre em contato com o suporte' });
+  next();
 }
 
 const router = express.Router();
@@ -105,7 +115,7 @@ router.get('/config/:totemId', (req, res) => {
   res.json({ success: true, prices, combo_enabled: extra.combo_enabled, sizes_enabled: extra.sizes_enabled });
 });
 
-router.post('/confirm', (req, res) => {
+router.post('/confirm', requireLicense, (req, res) => {
   try {
     const { code, totalValue, items, payment_method, totemId, localId, isTest } = req.body;
     if (!code) return res.status(400).json({ success: false, error: 'Codigo obrigatorio' });
@@ -119,7 +129,7 @@ router.post('/confirm', (req, res) => {
   }
 });
 
-router.post('/transaction-failed', (req, res) => {
+router.post('/transaction-failed', requireLicense, (req, res) => {
   try {
     const { code, totalValue, items, payment_method, totemId, error_reason, localId, isTest } = req.body;
     if (!code && !localId) return res.status(400).json({ success: false, error: 'code ou localId obrigatorio' });
@@ -133,7 +143,7 @@ router.post('/transaction-failed', (req, res) => {
   }
 });
 
-router.post('/telemetry', (req, res) => {
+router.post('/telemetry', requireLicense, (req, res) => {
   try {
     const { totemId, cpu, ram, paper_10x15, paper_15x20, printer_error, printer_name, screenshot } = req.body;
     if (!totemId) return res.status(400).json({ success: false, error: 'totemId obrigatorio' });
@@ -193,7 +203,7 @@ router.post('/screenshot', (req, res) => {
 });
 
 // ─── COUPON VALIDATE ─────────────────────────────────────
-router.post('/coupon/validate', (req, res) => {
+router.post('/coupon/validate', requireLicense, (req, res) => {
   try {
     const { code, cpf, totemId } = req.body;
     if (!code) return res.json({ valid: false, error: 'Código do cupom obrigatório' });
@@ -250,7 +260,7 @@ router.post('/coupon/validate', (req, res) => {
 });
 
 // ─── COUPON USE ─────────────────────────────────────────
-router.post('/coupon/use', (req, res) => {
+router.post('/coupon/use', requireLicense, (req, res) => {
   try {
     const { couponId, cpf, totemId, transactionId, photoSize } = req.body;
     if (!couponId || !cpf) return res.status(400).json({ success: false, error: 'couponId e cpf obrigatórios' });
