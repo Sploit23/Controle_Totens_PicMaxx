@@ -10,7 +10,7 @@ services:
       - key: ADMIN_USER
         value: admin
       - key: ADMIN_PASS
-        value: 123456
+        sync: false
       - key: UPLOAD_DIR
         value: ./uploads
       - key: DB_PATH

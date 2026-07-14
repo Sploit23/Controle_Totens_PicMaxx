@@ -339,9 +339,18 @@ module.exports = {
   },
 
   updateUser(id, fields) {
+    const ALLOWED = new Set(['name', 'email', 'password_hash', 'plan', 'active']);
     for (const [key, value] of Object.entries(fields)) {
+      if (!ALLOWED.has(key)) continue;
       db.prepare(`UPDATE users SET ${key} = ? WHERE id = ?`).run(value, id);
     }
+  },
+
+  deleteUser(id) {
+    db.prepare(`DELETE FROM licenses WHERE user_id = ?`).run(id);
+    db.prepare(`UPDATE totems SET user_id = NULL WHERE user_id = ?`).run(id);
+    db.prepare(`DELETE FROM coupons WHERE user_id = ?`).run(id);
+    db.prepare(`DELETE FROM users WHERE id = ?`).run(id);
   },
 
   // ---- Licenses ----
@@ -365,9 +374,19 @@ module.exports = {
   },
 
   updateLicense(id, fields) {
+    const ALLOWED = new Set(['user_id', 'token', 'totem_id', 'expires_at', 'active']);
     for (const [key, value] of Object.entries(fields)) {
+      if (!ALLOWED.has(key)) continue;
       db.prepare(`UPDATE licenses SET ${key} = ? WHERE id = ?`).run(value, id);
     }
+  },
+
+  deleteLicense(id) {
+    db.prepare(`DELETE FROM licenses WHERE id = ?`).run(id);
+  },
+
+  unbindTotem(totemId) {
+    db.prepare(`UPDATE totems SET user_id = NULL WHERE id = ?`).run(totemId);
   },
 
   bindLicenseToTotem(token, totemId) {

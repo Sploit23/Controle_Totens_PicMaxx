@@ -1,7 +1,12 @@
 const express = require('express');
 const crypto = require('crypto');
 const { getTotems,
-        getUsers, getAllLicenses, createLicense, updateLicense } = require('../database');
+        getUsers, getAllLicenses, createLicense, updateLicense,
+        hashPassword, verifyPassword } = require('../database');
+
+const ADMIN_USER = process.env.ADMIN_USER || 'admin';
+const ADMIN_PASS = process.env.ADMIN_PASS || '123456';
+const ADMIN_PASS_HASH = hashPassword(ADMIN_PASS);
 
 function log(rid, msg, data) {
   const ts = new Date().toISOString().replace('T', ' ').slice(0, 19);
@@ -37,9 +42,7 @@ router.get('/login', (req, res) => {
 
 router.post('/login', (req, res) => {
   const { user, pass } = req.body;
-  const adminUser = process.env.ADMIN_USER || 'admin';
-  const adminPass = process.env.ADMIN_PASS || '123456';
-  if (user === adminUser && pass === adminPass) {
+  if (user === ADMIN_USER && pass && verifyPassword(pass, ADMIN_PASS_HASH)) {
     const sid = crypto.randomBytes(24).toString('hex');
     sessions.set(sid, { user, createdAt: Date.now() });
     res.cookie('sid', sid, { httpOnly: true, sameSite: 'lax', maxAge: 86400000 });
