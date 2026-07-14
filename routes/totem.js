@@ -181,6 +181,17 @@ router.get('/telemetry/:totemId', (req, res) => {
   }
 });
 
+router.post('/screenshot', (req, res) => {
+  try {
+    const { totemId, screenshot } = req.body;
+    if (!totemId) return res.status(400).json({ success: false, error: 'totemId obrigatorio' });
+    if (screenshot) saveScreenshot(totemId, screenshot);
+    res.json({ success: true });
+  } catch (e) {
+    res.status(500).json({ success: false, error: e.message });
+  }
+});
+
 // ─── COUPON VALIDATE ─────────────────────────────────────
 router.post('/coupon/validate', (req, res) => {
   try {
