@@ -68,14 +68,14 @@ router.get('/', (req, res) => {
   const user = getUserById(req.session.userId);
   if (!user) { req.session = null; return res.redirect('/client/login'); }
 
-  const page = req.query.page || 'kiosk';
+  const page = req.query.page || 'dashboard';
   const selectedTotemId = req.query.totem || '';
   const clientTotems = getTotemsByUser(user.id);
   const licenses = getLicensesByUser(user.id);
   const config = getClientConfig(user.id);
 
   // Variaveis compartilhadas
-  let pageTitle = 'Kiosk', pageContent = '';
+  let pageTitle = 'Dashboard', pageContent = '';
 
   if (page === 'kiosk' && selectedTotemId) {
     const totem = getTotem(selectedTotemId);
@@ -108,11 +108,15 @@ router.get('/', (req, res) => {
     pageTitle = '🎟️ Cupons';
     pageContent = couponsPage(user, clientTotems);
   } else if (page === 'live') {
-    pageTitle = '📡 Ao Vivo';
+    pageTitle = 'Ao Vivo';
     pageContent = livePage(user, clientTotems);
-  } else {
-    // Kiosk list (default)
+  } else if (page === 'kiosk') {
     pageContent = kioskListPage(user, clientTotems, config);
+  } else {
+    // Dashboard (default)
+    pageTitle = 'Dashboard';
+    const globalStats = getStats();
+    pageContent = dashboardPage(user, clientTotems, globalStats);
   }
 
   res.send(layoutPage(user, page, pageTitle, pageContent));
@@ -423,8 +427,15 @@ a:hover { text-decoration:underline; }
 .sidebar {
   position:fixed; top:0; left:0; width:var(--sidebar-w); height:100vh; background:var(--bg-sidebar);
   padding:0; z-index:200; transition:transform .3s ease; display:flex; flex-direction:column;
-  border-right:1px solid rgba(255,255,255,.06);
+  border-right:1px solid rgba(255,255,255,.06); transform:translateX(-100%);
 }
+.sidebar.open { transform:translateX(0); }
+.sidebar-backdrop {
+  display:none; position:fixed; inset:0; background:rgba(0,0,0,.4); z-index:190;
+  backdrop-filter:blur(2px); -webkit-backdrop-filter:blur(2px);
+}
+body.sidebar-open .sidebar-backdrop { display:block; }
+body.sidebar-open { overflow:hidden; }
 .sidebar-logo { padding:24px 20px 20px; display:flex; align-items:center; gap:12px; border-bottom:1px solid rgba(255,255,255,.06); }
 .sidebar-logo .logo-icon { width:38px; height:38px; background:var(--primary); border-radius:10px; display:flex; align-items:center; justify-content:center; color:#fff; font-weight:900; font-size:16px; flex-shrink:0; }
 .sidebar-logo .logo-text { font-size:18px; font-weight:800; color:#fff; letter-spacing:-.5px; }
@@ -448,7 +459,7 @@ a:hover { text-decoration:underline; }
 .sidebar-footer .user-info { flex:1; min-width:0; }
 .sidebar-footer .user-info .name { color:#fff; font-size:13px; font-weight:600; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
 .sidebar-footer .user-info .role { color:var(--text-sidebar); font-size:11px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
-.main { margin-left:var(--sidebar-w); min-height:100vh; transition:margin .3s ease; }
+.main { margin-left:0; min-height:100vh; }
 .topbar {
   background:var(--bg-card); border-bottom:1px solid var(--border); padding:0 28px; height:64px;
   display:flex; align-items:center; justify-content:space-between; position:sticky; top:0; z-index:100;
@@ -456,7 +467,7 @@ a:hover { text-decoration:underline; }
 .topbar-title { font-size:18px; font-weight:700; }
 .topbar-actions { display:flex; align-items:center; gap:12px; }
 .hamburger {
-  display:none; background:none; border:none; font-size:24px; cursor:pointer; color:var(--text);
+  display:block; background:none; border:none; font-size:24px; cursor:pointer; color:var(--text);
   padding:8px; border-radius:8px;
 }
 .hamburger:hover { background:var(--bg-input); }
@@ -624,10 +635,6 @@ tr:hover td { background:var(--bg-input); }
 .tel-footer { display:flex; justify-content:space-between; align-items:center; margin-top:4px; font-size:12px; }
 .tel-err { color:var(--text-secondary); }
 @media (max-width:768px) {
-  .sidebar { transform:translateX(-100%); }
-  .sidebar.open { transform:translateX(0); }
-  .main { margin-left:0; }
-  .hamburger { display:block; }
   .content { padding:16px; }
   .stats-grid { grid-template-columns:1fr 1fr; gap:10px; }
   .stat-card { padding:14px; }
@@ -661,10 +668,20 @@ function getThemeScript() {
   };
   window.closeSidebar = function(){
     document.querySelector('.sidebar').classList.remove('open');
+    document.body.classList.remove('sidebar-open');
   };
   window.openSidebar = function(){
     document.querySelector('.sidebar').classList.add('open');
+    document.body.classList.add('sidebar-open');
   };
+  window.toggleSidebar = function(){
+    var sb = document.querySelector('.sidebar');
+    if(sb.classList.contains('open')) window.closeSidebar();
+    else window.openSidebar();
+  };
+  document.addEventListener('keydown', function(e){
+    if(e.key === 'Escape') window.closeSidebar();
+  });
   window.showToast = function(msg, type){
     var t = document.getElementById('global-toast');
     if(!t) return;
@@ -698,8 +715,9 @@ function getThemeScript() {
 </script>`;
 }
 
-function sidebarHTML(active) {
+function sidebarHTML(active, user) {
   var nav = [
+    { href: '/client', icon: '&#9632;', label: 'Dashboard', id: 'dashboard' },
     { href: '/client?page=kiosk', icon: '&#9787;', label: 'Kiosks', id: 'kiosk' },
     { href: '/client?page=licenses', icon: '&#9830;', label: 'Licencas', id: 'licenses' },
     { href: '/client?page=settings', icon: '&#9881;', label: 'Cadastros', id: 'settings' },
@@ -707,20 +725,22 @@ function sidebarHTML(active) {
     { href: '/client?page=coupons', icon: '&#10003;', label: 'Cupons', id: 'coupons' },
     { href: '/client?page=live', icon: '&#9678;', label: 'Ao Vivo', id: 'live' },
   ];
-  var initial = '?';
+  var userName = user ? user.name : 'Conta';
+  var userEmail = user ? user.email : '';
+  var initial = userName.charAt(0).toUpperCase();
   return `<aside class="sidebar" id="sidebar">
     <div class="sidebar-logo">
       <div class="logo-icon">R</div>
       <div class="logo-text">Minha <span>Conta</span></div>
     </div>
     <nav class="sidebar-nav">
-      ${nav.map(function(n){ return '<a href="'+n.href+'" class="'+(active===n.id?'active':'')+'"><span class="icon">'+n.icon+'</span>'+n.label+'</a>'; }).join('')}
+      ${nav.map(function(n){ return '<a href="'+n.href+'" class="'+(active===n.id?'active':'')+'" onclick="closeSidebar()"><span class="icon">'+n.icon+'</span>'+n.label+'</a>'; }).join('')}
     </nav>
     <div class="sidebar-footer">
-      <div class="avatar">U</div>
+      <div class="avatar">${initial}</div>
       <div class="user-info">
-        <div class="name">Conta</div>
-        <div class="role">Cliente</div>
+        <div class="name">${userName}</div>
+        <div class="role">${userEmail}</div>
       </div>
     </div>
   </aside>`;
@@ -729,7 +749,7 @@ function sidebarHTML(active) {
 function topbarHTML(title) {
   return `<header class="topbar">
     <div style="display:flex;align-items:center;gap:12px;">
-      <button class="hamburger" onclick="openSidebar()">&#9776;</button>
+      <button class="hamburger" onclick="toggleSidebar()">&#9776; <span style="font-size:13px;font-weight:600;">Menu</span></button>
       <span class="topbar-title">${title}</span>
     </div>
     <div class="topbar-actions">
@@ -752,7 +772,8 @@ function layoutPage(user, activePage, pageTitle, pageContent) {
 <style>${CSS}</style>
 </head>
 <body>
-${sidebarHTML(activePage)}
+<div class="sidebar-backdrop" onclick="closeSidebar()"></div>
+${sidebarHTML(activePage, user)}
 <div class="main">
   ${topbarHTML(pageTitle)}
   <div class="content">
@@ -767,6 +788,101 @@ ${getThemeScript()}
 </body>
 </html>`;
 }
+// ─── DASHBOARD PAGE ─────────────────────────────────────
+function dashboardPage(user, clientTotems, globalStats) {
+  const online = t => t.last_seen && (Date.now() - new Date(t.last_seen+'Z').getTime()) < 180000;
+  const onlineCount = clientTotems.filter(t => online(t)).length;
+  const offlineCount = clientTotems.length - onlineCount;
+
+  const todayCount = globalStats.todaySales.count || 0;
+  const todayRevenue = parseFloat(globalStats.todaySales.revenue || 0);
+  const totalRevenue = parseFloat(globalStats.totalSales.revenue || 0);
+  const totalSales = globalStats.totalSales.count || 0;
+
+  const recentTxs = [];
+  for (const t of clientTotems) {
+    const txs = getTransactions(5, t.id);
+    for (const tx of txs) tx._totemName = t.name || t.id;
+    recentTxs.push(...txs);
+  }
+  recentTxs.sort((a, b) => b.created_at.localeCompare(a.created_at));
+  recentTxs.splice(5);
+
+  const methodLabels = { pix:'PIX', credit:'Credito', debit:'Debito', test:'Teste', money:'Dinheiro', unknown:'-' };
+
+  const txRows = recentTxs.map(t => {
+    const items = JSON.parse(t.items || '[]');
+    const itemStr = items.map(i => i.qty + 'x ' + i.type).join(', ') || '-';
+    return `<tr>
+      <td>${t._totemName || '-'}</td>
+      <td>${t.created_at ? new Date(t.created_at+'Z').toLocaleString('pt-BR') : '-'}</td>
+      <td>${itemStr}</td>
+      <td>${fmtMoney(t.total_value)}</td>
+      <td><span class="badge badge-${t.status}">${t.status === 'completed' ? 'Aprovado' : 'Falha'}</span></td>
+      <td>${methodLabels[t.payment_method] || t.payment_method}</td>
+    </tr>`;
+  }).join('') || '<tr><td colspan="6" style="text-align:center;color:var(--text-secondary);padding:30px;">Nenhuma transacao ainda</td></tr>';
+
+  const totemList = clientTotems.map(t => {
+    const isOnline = online(t);
+    return `<a href="/client?page=kiosk&totem=${t.id}" class="totem-card">
+      <span class="status-dot" style="background:${isOnline?'#22c55e':'#ef4444'}"></span>
+      <div class="info">
+        <strong>${t.name || t.id}</strong>
+        <div class="sub">${isOnline ? 'Online' : 'Offline'} &middot; ${t.last_seen ? new Date(t.last_seen+'Z').toLocaleString('pt-BR') : 'Nunca conectou'}</div>
+      </div>
+      <span style="font-size:20px;color:var(--border);">&#8250;</span>
+    </a>`;
+  }).join('') || '<div class="alert">Nenhum totem registrado ainda.</div>';
+
+  return `
+<div class="stats-grid">
+  <div class="stat-card">
+    <div class="label">Totens</div>
+    <div class="value">${clientTotems.length}</div>
+    <div class="sub-label">${onlineCount} online &middot; ${offlineCount} offline</div>
+  </div>
+  <div class="stat-card">
+    <div class="label">Vendas Hoje</div>
+    <div class="value">${todayCount}</div>
+    <div class="sub-label">${fmtMoney(todayRevenue)}</div>
+  </div>
+  <div class="stat-card">
+    <div class="label">Receita Total</div>
+    <div class="value">${fmtMoney(totalRevenue)}</div>
+    <div class="sub-label">${totalSales} vendas</div>
+  </div>
+  <div class="stat-card">
+    <div class="label">Online Agora</div>
+    <div class="value" style="color:${onlineCount > 0 ? 'var(--success)' : 'var(--danger)'};">${onlineCount}</div>
+    <div class="sub-label">de ${clientTotems.length} totens</div>
+  </div>
+</div>
+
+<div class="section">
+  <div class="section-header">
+    <h3>Seus Totens</h3>
+    <a href="/client?page=kiosk" class="btn btn-outline btn-sm">Ver todos</a>
+  </div>
+  ${totemList}
+</div>
+
+${recentTxs.length > 0 ? `
+<div class="section">
+  <div class="section-header">
+    <h3>Ultimas Transacoes</h3>
+    <a href="/client?page=monitoring" class="btn btn-outline btn-sm">Ver todas</a>
+  </div>
+  <div class="table-wrap">
+    <table>
+      <thead><tr><th>Totem</th><th>Data</th><th>Itens</th><th>Valor</th><th>Status</th><th>Pagamento</th></tr></thead>
+      <tbody>${txRows}</tbody>
+    </table>
+  </div>
+</div>` : ''}
+`;
+}
+
 // ─── KIOSK LIST ─────────────────────────────────────────
 function kioskListPage(user, clientTotems) {
   const online = t => t.last_seen && (Date.now() - new Date(t.last_seen+'Z').getTime()) < 180000;
