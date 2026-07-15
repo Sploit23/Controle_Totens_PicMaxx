@@ -1774,7 +1774,7 @@ footer{text-align:center;padding:1rem;border-top:var(--glass-border);color:var(-
 body.fs-mode .main-header,body.fs-mode footer,body.fs-mode #js-status,body.fs-mode #debug-info,body.fs-mode #no-results{display:none!important}
 body.fs-mode main{padding:0!important;max-width:none!important}
 body.fs-mode .grid-view{gap:.8rem;padding:.8rem;max-width:none;grid-template-columns:repeat(auto-fill,minmax(320px,1fr))}
-body.fs-mode .totem-card{height:calc(100vh - 2rem);border-radius:8px}
+body.fs-mode .totem-card{border-radius:8px}
 body.fs-mode .totem-card:hover{transform:none}
 .fs-exit-btn{display:none;position:fixed;top:12px;right:12px;z-index:9999;background:rgba(255,61,113,.9);color:#fff;border:none;border-radius:50px;padding:.5rem 1rem;font-size:.85rem;font-weight:600;cursor:pointer;backdrop-filter:blur(8px);box-shadow:0 4px 16px rgba(0,0,0,.4);transition:all .2s}
 .fs-exit-btn:hover{background:rgba(255,61,113,1);transform:scale(1.05)}
