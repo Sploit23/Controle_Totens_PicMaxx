@@ -425,13 +425,14 @@ body { font-family: 'Inter', system-ui, -apple-system, sans-serif; background:va
 a { color:var(--primary); text-decoration:none; }
 a:hover { text-decoration:underline; }
 .sidebar {
-  position:fixed; top:0; left:0; width:var(--sidebar-w); height:100vh; background:var(--bg-sidebar);
-  padding:0; z-index:200; transition:transform .3s ease; display:flex; flex-direction:column;
-  border-right:1px solid rgba(255,255,255,.06); transform:translateX(-100%);
+  position:fixed !important; top:0; left:0; width:var(--sidebar-w); height:100vh; background:var(--bg-sidebar);
+  padding:0; z-index:9999; transition:transform .3s ease; display:flex; flex-direction:column;
+  border-right:1px solid rgba(255,255,255,.06); transform:translateX(-100%) !important;
+  pointer-events:none;
 }
-.sidebar.open { transform:translateX(0); }
+.sidebar.open { transform:translateX(0) !important; pointer-events:auto; box-shadow:4px 0 24px rgba(0,0,0,.3); }
 .sidebar-backdrop {
-  display:none; position:fixed; inset:0; background:rgba(0,0,0,.4); z-index:190;
+  display:none; position:fixed; inset:0; background:rgba(0,0,0,.4); z-index:9998;
   backdrop-filter:blur(2px); -webkit-backdrop-filter:blur(2px);
 }
 body.sidebar-open .sidebar-backdrop { display:block; }
@@ -667,15 +668,18 @@ function getThemeScript() {
     localStorage.setItem('theme', next);
   };
   window.closeSidebar = function(){
-    document.querySelector('.sidebar').classList.remove('open');
+    var sb = document.getElementById('sidebar');
+    if(sb) sb.classList.remove('open');
     document.body.classList.remove('sidebar-open');
   };
   window.openSidebar = function(){
-    document.querySelector('.sidebar').classList.add('open');
+    var sb = document.getElementById('sidebar');
+    if(sb) sb.classList.add('open');
     document.body.classList.add('sidebar-open');
   };
   window.toggleSidebar = function(){
-    var sb = document.querySelector('.sidebar');
+    var sb = document.getElementById('sidebar');
+    if(!sb) return;
     if(sb.classList.contains('open')) window.closeSidebar();
     else window.openSidebar();
   };
