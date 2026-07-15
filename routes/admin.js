@@ -399,21 +399,28 @@ select.form-input { cursor:pointer; }
 function getThemeScript() {
   return `<script>
 (function(){
-  const saved = localStorage.getItem('theme') || 'light';
-  document.documentElement.setAttribute('data-theme', saved);
   window.toggleTheme = function(){
     const current = document.documentElement.getAttribute('data-theme');
     const next = current === 'dark' ? 'light' : 'dark';
     document.documentElement.setAttribute('data-theme', next);
-    localStorage.setItem('theme', next);
+    try { localStorage.setItem('theme', next); } catch(e) {}
   };
   window.closeSidebar = function(){
-    document.querySelector('.sidebar').classList.remove('open');
+    const sb = document.getElementById('sidebar');
+    if(sb) sb.classList.remove('open');
+    document.body.classList.remove('sidebar-open');
   };
   window.openSidebar = function(){
-    document.querySelector('.sidebar').classList.add('open');
+    const sb = document.getElementById('sidebar');
+    if(sb) sb.classList.add('open');
+    document.body.classList.add('sidebar-open');
   };
-  // Toast
+  window.toggleSidebar = function(){
+    const sb = document.getElementById('sidebar');
+    if(!sb) return;
+    if(sb.classList.contains('open')) window.closeSidebar();
+    else window.openSidebar();
+  };
   window.showToast = function(msg, type){
     const t = document.getElementById('toast');
     if(!t) return;
@@ -421,25 +428,9 @@ function getThemeScript() {
     t.className = 'toast ' + (type||'success') + ' show';
     setTimeout(function(){ t.className = 'toast'; }, 3000);
   };
-  // Check URL params for success/error
-  const params = new URLSearchParams(window.location.search);
-  if(params.get('success')) showToast(params.get('success').replace(/\\+/g,' '), 'success');
-  if(params.get('error')) showToast(params.get('error').replace(/\\+/g,' '), 'error');
-  if(params.get('success')||params.get('error')) {
-    const url = new URL(window.location);
-    url.searchParams.delete('success');
-    url.searchParams.delete('error');
-    window.history.replaceState({},'',url);
-  }
-  // Modal
   window.openModal = function(id){ document.getElementById(id).classList.add('active'); };
   window.closeModal = function(id){ document.getElementById(id).classList.remove('active'); };
-  window.closeAllModals = function(){ document.querySelectorAll('.modal-overlay').forEach(m=>m.classList.remove('active')); };
-  // Close modal on overlay click
-  document.querySelectorAll('.modal-overlay').forEach(function(el){
-    el.addEventListener('click',function(e){ if(e.target===el) el.classList.remove('active'); });
-  });
-  // Search filter
+  window.closeAllModals = function(){ document.querySelectorAll('.modal-overlay').forEach(function(m){m.classList.remove('active');}); };
   window.filterTable = function(inputId, tableId){
     const q = document.getElementById(inputId).value.toLowerCase();
     const rows = document.querySelectorAll('#'+tableId+' tbody tr');
@@ -447,6 +438,26 @@ function getThemeScript() {
       r.style.display = r.textContent.toLowerCase().includes(q) ? '' : 'none';
     });
   };
+  var hamburger = document.getElementById('hamburger-btn');
+  if(hamburger) hamburger.addEventListener('click', function(){ toggleSidebar(); });
+  var themeBtn = document.getElementById('theme-btn');
+  if(themeBtn) themeBtn.addEventListener('click', function(){ toggleTheme(); });
+  document.addEventListener('keydown', function(e){
+    if(e.key === 'Escape') closeSidebar();
+  });
+  document.querySelectorAll('.modal-overlay').forEach(function(el){
+    el.addEventListener('click',function(e){ if(e.target===el) el.classList.remove('active'); });
+  });
+  var params = new URLSearchParams(window.location.search);
+  var s = params.get('success'), er = params.get('error');
+  if(s) showToast(s.replace(/\\+/g,' '), 'success');
+  if(er) showToast(er.replace(/\\+/g,' '), 'error');
+  if(s || er) {
+    var url = new URL(window.location);
+    url.searchParams.delete('success');
+    url.searchParams.delete('error');
+    window.history.replaceState({},'',url);
+  }
 })();
 </script>`;
 }
@@ -477,11 +488,11 @@ function topbarHTML(title) {
   return `
   <header class="topbar">
     <div style="display:flex;align-items:center;gap:12px;">
-      <button class="hamburger" onclick="openSidebar()">&#9776;</button>
+      <button class="hamburger" id="hamburger-btn">&#9776;</button>
       <span class="topbar-title">${title}</span>
     </div>
     <div class="topbar-actions">
-      <button class="btn-theme" onclick="toggleTheme()" title="Alternar tema">&#9789;</button>
+      <button class="btn-theme" id="theme-btn" title="Alternar tema">&#9789;</button>
       <a href="/admin/logout" class="btn-logout">Sair</a>
     </div>
   </header>`;
@@ -545,6 +556,7 @@ function dashboardPage(data) {
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
 <title>Dashboard - Controle Maxx</title>
 <style>${CSS}</style>
+<script>try{document.documentElement.setAttribute('data-theme',localStorage.getItem('theme')||'light')}catch(e){}</script>
 </head>
 <body>
 ${sidebarHTML('dashboard')}
@@ -608,7 +620,7 @@ ${sidebarHTML('dashboard')}
             <td class="cell-mono" style="font-size:12px">${l.token}</td>
             <td>${l.user_name || '#' + l.user_id}</td>
             <td>${l.totem_id || '<span style="color:var(--text-secondary)">—</span>'}</td>
-            <td style="font-size:13px;color:var(--text-secondary)">${l.expires_at ? new Date(l.expires_at+'Z').toLocaleDateString('pt-BR') : '—'}</td>
+            <td style="font-size:13px;color:var(--text-secondary)">${l.expires_at ? new Date(l.expires_at+'Z').toLocaleDateString('pt-BR', { timeZone: 'America/Sao_Paulo' }) : '—'}</td>
             <td><span class="badge ${l.active ? 'badge-ok' : 'badge-fail'}">${l.active ? 'Ativa' : 'Inativa'}</span></td>
           </tr>`).join('') || '<tr><td colspan="5" class="empty"><div class="empty-icon">&#9830;</div>Nenhuma licenca</td></tr>'}
           </tbody>
@@ -634,6 +646,7 @@ function clientesPage(data) {
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
 <title>Clientes - Controle Maxx</title>
 <style>${CSS}</style>
+<script>try{document.documentElement.setAttribute('data-theme',localStorage.getItem('theme')||'light')}catch(e){}</script>
 </head>
 <body>
 ${sidebarHTML('clientes')}
@@ -665,7 +678,7 @@ ${sidebarHTML('clientes')}
               <td><span class="badge ${u.active ? 'badge-ok' : 'badge-fail'}">${u.active ? 'Ativo' : 'Suspenso'}</span></td>
               <td>${userTotens.length > 0 ? userTotens.map(t => `<span class="badge badge-info" style="margin:1px">${t.id}</span>`).join('') : '<span style="color:var(--text-secondary)">Nenhum</span>'}</td>
               <td>${userLicenses.length}</td>
-              <td style="font-size:13px;color:var(--text-secondary)">${u.created_at ? new Date(u.created_at+'Z').toLocaleDateString('pt-BR') : '—'}</td>
+              <td style="font-size:13px;color:var(--text-secondary)">${u.created_at ? new Date(u.created_at+'Z').toLocaleDateString('pt-BR', { timeZone: 'America/Sao_Paulo' }) : '—'}</td>
               <td>
                 <div class="actions-cell">
                   <button class="btn-icon" title="Editar" onclick="openEditModal(${u.id},'${encodeURIComponent(u.name)}','${encodeURIComponent(u.email)}','${u.plan}')">&#9998;</button>
@@ -779,6 +792,7 @@ function licencasPage(data) {
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
 <title>Licencas - Controle Maxx</title>
 <style>${CSS}</style>
+<script>try{document.documentElement.setAttribute('data-theme',localStorage.getItem('theme')||'light')}catch(e){}</script>
 </head>
 <body>
 ${sidebarHTML('licencas')}
@@ -804,8 +818,8 @@ ${sidebarHTML('licencas')}
             <td class="cell-mono" style="font-size:12px">${l.token}</td>
             <td>${l.user_name || '#' + l.user_id}</td>
             <td>${l.totem_id ? `<span class="badge badge-info">${l.totem_id}</span>` : '<span style="color:var(--text-secondary)">—</span>'}</td>
-            <td style="font-size:13px;color:var(--text-secondary)">${l.expires_at ? new Date(l.expires_at+'Z').toLocaleDateString('pt-BR') : '—'}</td>
-            <td style="font-size:13px;color:var(--text-secondary)">${l.created_at ? new Date(l.created_at+'Z').toLocaleDateString('pt-BR') : '—'}</td>
+            <td style="font-size:13px;color:var(--text-secondary)">${l.expires_at ? new Date(l.expires_at+'Z').toLocaleDateString('pt-BR', { timeZone: 'America/Sao_Paulo' }) : '—'}</td>
+            <td style="font-size:13px;color:var(--text-secondary)">${l.created_at ? new Date(l.created_at+'Z').toLocaleDateString('pt-BR', { timeZone: 'America/Sao_Paulo' }) : '—'}</td>
             <td><span class="badge ${l.active ? 'badge-ok' : 'badge-fail'}">${l.active ? 'Ativa' : 'Inativa'}</span></td>
             <td>
               <div class="actions-cell">

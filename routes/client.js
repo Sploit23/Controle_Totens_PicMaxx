@@ -425,14 +425,13 @@ body { font-family: 'Inter', system-ui, -apple-system, sans-serif; background:va
 a { color:var(--primary); text-decoration:none; }
 a:hover { text-decoration:underline; }
 .sidebar {
-  position:fixed !important; top:0; left:0; width:var(--sidebar-w); height:100vh; background:var(--bg-sidebar);
-  padding:0; z-index:9999; transition:transform .3s ease; display:flex; flex-direction:column;
-  border-right:1px solid rgba(255,255,255,.06); transform:translateX(-100%) !important;
-  pointer-events:none;
+  position:fixed; top:0; left:0; width:var(--sidebar-w); height:100vh; background:var(--bg-sidebar);
+  padding:0; z-index:200; transition:transform .3s ease; display:flex; flex-direction:column;
+  border-right:1px solid rgba(255,255,255,.06); transform:translateX(-100%);
 }
-.sidebar.open { transform:translateX(0) !important; pointer-events:auto; box-shadow:4px 0 24px rgba(0,0,0,.3); }
+.sidebar.open { transform:translateX(0); }
 .sidebar-backdrop {
-  display:none; position:fixed; inset:0; background:rgba(0,0,0,.4); z-index:9998;
+  display:none; position:fixed; inset:0; background:rgba(0,0,0,.4); z-index:190;
   backdrop-filter:blur(2px); -webkit-backdrop-filter:blur(2px);
 }
 body.sidebar-open .sidebar-backdrop { display:block; }
@@ -659,13 +658,11 @@ tr:hover td { background:var(--bg-input); }
 function getThemeScript() {
   return `<script>
 (function(){
-  var saved = localStorage.getItem('theme') || 'light';
-  document.documentElement.setAttribute('data-theme', saved);
   window.toggleTheme = function(){
     var current = document.documentElement.getAttribute('data-theme');
     var next = current === 'dark' ? 'light' : 'dark';
     document.documentElement.setAttribute('data-theme', next);
-    localStorage.setItem('theme', next);
+    try { localStorage.setItem('theme', next); } catch(e) {}
   };
   window.closeSidebar = function(){
     var sb = document.getElementById('sidebar');
@@ -683,9 +680,6 @@ function getThemeScript() {
     if(sb.classList.contains('open')) window.closeSidebar();
     else window.openSidebar();
   };
-  document.addEventListener('keydown', function(e){
-    if(e.key === 'Escape') window.closeSidebar();
-  });
   window.showToast = function(msg, type){
     var t = document.getElementById('global-toast');
     if(!t) return;
@@ -693,21 +687,9 @@ function getThemeScript() {
     t.className = 'toast ' + (type||'') + ' show';
     setTimeout(function(){ t.className = 'toast'; }, 3000);
   };
-  var params = new URLSearchParams(window.location.search);
-  if(params.get('success')) showToast(params.get('success').replace(/\+/g,' '), 'success');
-  if(params.get('error')) showToast(params.get('error').replace(/\+/g,' '), 'error');
-  if(params.get('success')||params.get('error')) {
-    var url = new URL(window.location);
-    url.searchParams.delete('success');
-    url.searchParams.delete('error');
-    window.history.replaceState({},'',url);
-  }
   window.openModal = function(id){ document.getElementById(id).classList.add('active'); };
   window.closeModal = function(id){ document.getElementById(id).classList.remove('active'); };
   window.closeAllModals = function(){ document.querySelectorAll('.modal-overlay').forEach(function(m){m.classList.remove('active');}); };
-  document.querySelectorAll('.modal-overlay').forEach(function(el){
-    el.addEventListener('click',function(e){ if(e.target===el) el.classList.remove('active'); });
-  });
   window.filterTable = function(inputId, tableId){
     var q = document.getElementById(inputId).value.toLowerCase();
     var rows = document.querySelectorAll('#'+tableId+' tbody tr');
@@ -715,6 +697,31 @@ function getThemeScript() {
       r.style.display = r.textContent.toLowerCase().includes(q) ? '' : 'none';
     });
   };
+  var hamburger = document.getElementById('hamburger-btn');
+  if(hamburger) hamburger.addEventListener('click', function(e){ e.stopPropagation(); toggleSidebar(); });
+  var themeBtn = document.getElementById('theme-btn');
+  if(themeBtn) themeBtn.addEventListener('click', function(){ toggleTheme(); });
+  var backdrop = document.querySelector('.sidebar-backdrop');
+  if(backdrop) backdrop.addEventListener('click', function(){ closeSidebar(); });
+  document.addEventListener('keydown', function(e){
+    if(e.key === 'Escape') closeSidebar();
+  });
+  document.querySelectorAll('.sidebar-nav a').forEach(function(a){
+    a.addEventListener('click', function(){ closeSidebar(); });
+  });
+  document.querySelectorAll('.modal-overlay').forEach(function(el){
+    el.addEventListener('click', function(e){ if(e.target === el) el.classList.remove('active'); });
+  });
+  var params = new URLSearchParams(window.location.search);
+  var s = params.get('success'), er = params.get('error');
+  if(s) showToast(s.replace(/\\+/g,' '), 'success');
+  if(er) showToast(er.replace(/\\+/g,' '), 'error');
+  if(s || er) {
+    var url = new URL(window.location);
+    url.searchParams.delete('success');
+    url.searchParams.delete('error');
+    window.history.replaceState({},'',url);
+  }
 })();
 </script>`;
 }
@@ -738,7 +745,7 @@ function sidebarHTML(active, user) {
       <div class="logo-text">Minha <span>Conta</span></div>
     </div>
     <nav class="sidebar-nav">
-      ${nav.map(function(n){ return '<a href="'+n.href+'" class="'+(active===n.id?'active':'')+'" onclick="closeSidebar()"><span class="icon">'+n.icon+'</span>'+n.label+'</a>'; }).join('')}
+      ${nav.map(function(n){ return '<a href="'+n.href+'" class="'+(active===n.id?'active':'')+'"><span class="icon">'+n.icon+'</span>'+n.label+'</a>'; }).join('')}
     </nav>
     <div class="sidebar-footer">
       <div class="avatar">${initial}</div>
@@ -753,11 +760,11 @@ function sidebarHTML(active, user) {
 function topbarHTML(title) {
   return `<header class="topbar">
     <div style="display:flex;align-items:center;gap:12px;">
-      <button class="hamburger" onclick="toggleSidebar()">&#9776; <span style="font-size:13px;font-weight:600;">Menu</span></button>
+      <button class="hamburger" id="hamburger-btn">&#9776; <span style="font-size:13px;font-weight:600;">Menu</span></button>
       <span class="topbar-title">${title}</span>
     </div>
     <div class="topbar-actions">
-      <button class="btn-theme" onclick="toggleTheme()" title="Alternar tema">&#9789;</button>
+      <button class="btn-theme" id="theme-btn" title="Alternar tema">&#9789;</button>
       <a href="/client/logout" class="btn-logout">Sair</a>
     </div>
   </header>`;
@@ -774,9 +781,12 @@ function layoutPage(user, activePage, pageTitle, pageContent) {
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
 <title>${pageTitle} — ${user.name}</title>
 <style>${CSS}</style>
+<script>
+try { document.documentElement.setAttribute('data-theme', localStorage.getItem('theme') || 'light'); } catch(e) {}
+</script>
 </head>
 <body>
-<div class="sidebar-backdrop" onclick="closeSidebar()"></div>
+<div class="sidebar-backdrop"></div>
 ${sidebarHTML(activePage, user)}
 <div class="main">
   ${topbarHTML(pageTitle)}
@@ -819,7 +829,7 @@ function dashboardPage(user, clientTotems, globalStats) {
     const itemStr = items.map(i => i.qty + 'x ' + i.type).join(', ') || '-';
     return `<tr>
       <td>${t._totemName || '-'}</td>
-      <td>${t.created_at ? new Date(t.created_at+'Z').toLocaleString('pt-BR') : '-'}</td>
+      <td>${t.created_at ? new Date(t.created_at+'Z').toLocaleString('pt-BR', { timeZone: 'America/Sao_Paulo' }) : '-'}</td>
       <td>${itemStr}</td>
       <td>${fmtMoney(t.total_value)}</td>
       <td><span class="badge badge-${t.status}">${t.status === 'completed' ? 'Aprovado' : 'Falha'}</span></td>
@@ -833,7 +843,7 @@ function dashboardPage(user, clientTotems, globalStats) {
       <span class="status-dot" style="background:${isOnline?'#22c55e':'#ef4444'}"></span>
       <div class="info">
         <strong>${t.name || t.id}</strong>
-        <div class="sub">${isOnline ? 'Online' : 'Offline'} &middot; ${t.last_seen ? new Date(t.last_seen+'Z').toLocaleString('pt-BR') : 'Nunca conectou'}</div>
+        <div class="sub">${isOnline ? 'Online' : 'Offline'} &middot; ${t.last_seen ? new Date(t.last_seen+'Z').toLocaleString('pt-BR', { timeZone: 'America/Sao_Paulo' }) : 'Nunca conectou'}</div>
       </div>
       <span style="font-size:20px;color:var(--border);">&#8250;</span>
     </a>`;
@@ -897,7 +907,7 @@ function kioskListPage(user, clientTotems) {
       <span class="status-dot" style="background:${isOnline?'#22c55e':'#ef4444'}"></span>
       <div class="info">
         <strong>${t.name || t.id}</strong>
-        <div class="sub">${isOnline ? 'Online' : 'Offline'} · ${t.last_seen ? 'Visto em ' + new Date(t.last_seen+'Z').toLocaleString('pt-BR') : 'Nunca conectou'}</div>
+        <div class="sub">${isOnline ? 'Online' : 'Offline'} · ${t.last_seen ? 'Visto em ' + new Date(t.last_seen+'Z').toLocaleString('pt-BR', { timeZone: 'America/Sao_Paulo' }) : 'Nunca conectou'}</div>
       </div>
       <span style="font-size:20px;color:#ccc;">›</span>
     </a>`;
@@ -932,7 +942,7 @@ function kioskDetailPage(user, totem, license, reportedConfig, config, stats, tx
     const items = JSON.parse(t.items || '[]');
     const itemStr = items.map(i => `${i.qty}x ${i.type}`).join(', ') || '—';
     return `<tr>
-      <td>${t.created_at ? new Date(t.created_at+'Z').toLocaleString('pt-BR') : '—'}</td>
+      <td>${t.created_at ? new Date(t.created_at+'Z').toLocaleString('pt-BR', { timeZone: 'America/Sao_Paulo' }) : '—'}</td>
       <td>${t.code_id || '—'}</td>
       <td>${itemStr}</td>
       <td>${fmtMoney(t.total_value)}</td>
@@ -992,7 +1002,7 @@ function kioskDetailPage(user, totem, license, reportedConfig, config, stats, tx
     </div>
     <div style="display:flex;align-items:center;gap:12px;">
       <span style="font-weight:600;font-size:14px;color:#555;min-width:80px;">Última vez:</span>
-      <span>${totem.last_seen ? new Date(totem.last_seen+'Z').toLocaleString('pt-BR') : 'Nunca'}</span>
+      <span>${totem.last_seen ? new Date(totem.last_seen+'Z').toLocaleString('pt-BR', { timeZone: 'America/Sao_Paulo' }) : 'Nunca'}</span>
     </div>
     <div style="display:flex;align-items:center;gap:12px;">
       <span style="font-weight:600;font-size:14px;color:#555;min-width:80px;">Licença:</span>
@@ -1420,7 +1430,7 @@ function monitoringPage(user, clientTotems, stats, allTxs) {
     const itemStr = items.map(i => `${i.qty}x ${i.type}`).join(', ') || '—';
     return `<tr>
       <td>${t.totem_id || '—'}</td>
-      <td>${t.created_at ? new Date(t.created_at+'Z').toLocaleString('pt-BR') : '—'}</td>
+      <td>${t.created_at ? new Date(t.created_at+'Z').toLocaleString('pt-BR', { timeZone: 'America/Sao_Paulo' }) : '—'}</td>
       <td>${t.code_id || '—'}</td>
       <td>${itemStr}</td>
       <td>${fmtMoney(t.total_value)}</td>

@@ -150,6 +150,7 @@ router.post('/telemetry', requireLicense, (req, res) => {
 
     saveTelemetry(totemId, { cpu, ram, paper_10x15, paper_15x20, printer_error, printer_name });
     if (screenshot) saveScreenshot(totemId, screenshot);
+    getDB().prepare(`UPDATE totems SET last_seen = datetime('now') WHERE id = ?`).run(totemId);
 
     log(req.rid, `Telemetry: ${totemId} CPU:${cpu} RAM:${ram} Papel:${paper_10x15}/${paper_15x20}`);
     res.json({ success: true });
@@ -196,13 +197,11 @@ router.post('/screenshot', (req, res) => {
     const { totemId, screenshot } = req.body;
     if (!totemId) return res.status(400).json({ success: false, error: 'totemId obrigatorio' });
     if (screenshot) saveScreenshot(totemId, screenshot);
+    getDB().prepare(`UPDATE totems SET last_seen = datetime('now') WHERE id = ?`).run(totemId);
     res.json({ success: true });
-  } catch (e) {
-    res.status(500).json({ success: false, error: e.message });
-  }
+  } catch (err) { res.status(500).json({ success: false, error: err.message }); }
 });
 
-// ─── COUPON VALIDATE ─────────────────────────────────────
 router.post('/coupon/validate', requireLicense, (req, res) => {
   try {
     const { code, cpf, totemId } = req.body;
